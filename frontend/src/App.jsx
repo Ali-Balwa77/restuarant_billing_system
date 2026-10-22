@@ -4,7 +4,6 @@ import Sidebar from './components/Layout/Sidebar';
 import LoginView from './components/LoginView';
 import FastBillingView from './components/POS/FastBillingView';
 import MastersView from './components/Masters/MastersView';
-import KitchenView from './components/Kitchen/KitchenView';
 import ReportsView from './components/Reports/ReportsView';
 import PrintBillModal from './components/Modals/PrintBillModal';
 import { api } from './services/api';
@@ -185,34 +184,7 @@ export default function App() {
     setActiveView('BILLING');
   }, [invoiceCounter]);
 
-  // Fire KOT to Kitchen
-  const handleGenerateKot = useCallback(async () => {
-    if (orderItems.length === 0) {
-      alert('Please add at least one item to fire KOT.');
-      return;
-    }
 
-    const nextKotNo = `KOT-${100 + kots.length + 1}`;
-    const kotPayload = {
-      kotNo: nextKotNo,
-      tableId: selectedTable?.id || 'WALK-IN',
-      tableName: orderType === 'DINE_IN' ? (selectedTable?.name || 'Table') : orderType,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      status: 'PENDING',
-      items: orderItems.map(i => ({ name: i.name, qty: i.qty, notes: '' })),
-    };
-
-    try {
-      await api.createKot(kotPayload);
-      if (orderType === 'DINE_IN' && selectedTable?.id) {
-        await api.updateTable(selectedTable.id, { status: 'OCCUPIED' });
-      }
-      await fetchAllData();
-      alert(`🔥 Kitchen Order Ticket ${nextKotNo} sent to kitchen!`);
-    } catch (err) {
-      alert(`Error saving KOT: ${err.message}`);
-    }
-  }, [orderItems, orderType, selectedTable, kots.length, fetchAllData]);
 
   // Settle Bill
   const handleSettleBill = useCallback(async (calcData) => {
@@ -355,7 +327,6 @@ export default function App() {
         <Sidebar
           activeView={activeView}
           setActiveView={handleSelectView}
-          kotsCount={kots.length}
           isCollapsed={isSidebarCollapsed}
           setIsCollapsed={setIsSidebarCollapsed}
         />
@@ -380,7 +351,6 @@ export default function App() {
               runningOrders={runningOrders}
               updateRunningOrder={updateRunningOrder}
               removeRunningOrder={removeRunningOrder}
-              onGenerateKot={handleGenerateKot}
               onSettleBill={handleSettleBill}
               onNewBill={handleNewBill}
               onTransferTable={handleTransferTable}
@@ -394,14 +364,6 @@ export default function App() {
               categories={categories}
               tables={tables}
               restaurant={restaurant}
-              onRefresh={fetchAllData}
-            />
-          )}
-
-          {/* VIEW 3: Live Kitchen (KOTs) Screen */}
-          {activeView === 'KITCHEN' && (
-            <KitchenView
-              kots={kots}
               onRefresh={fetchAllData}
             />
           )}

@@ -32,7 +32,6 @@ export default function FastBillingView({
   runningOrders = {},
   updateRunningOrder,
   removeRunningOrder,
-  onGenerateKot,
   onSettleBill,
   onNewBill,
   onTransferTable
