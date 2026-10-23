@@ -70,6 +70,8 @@ export const api = {
   // Invoices & Sales
   getSales: () => request('/sales'),
   createInvoice: (invoice) => request('/sales', { method: 'POST', body: JSON.stringify(invoice) }),
+  updateInvoice: (id, invoice) => request('/sales/' + id, { method: 'PUT', body: JSON.stringify(invoice) }),
+  deleteInvoice: (id) => request('/sales/' + id, { method: 'DELETE' }),
 
   // Customers
   getCustomers: () => request('/customers'),

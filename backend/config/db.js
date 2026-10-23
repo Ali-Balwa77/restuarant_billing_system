@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { alineaCategories, alineaMenuItems } from './alineaMenuData.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -128,12 +129,16 @@ export function initDb() {
       );
     `);
 
-    // Migration: ensure customer_gst exists on invoices
+    // Migration: ensure new columns exist on invoices
     try {
       const cols = db.prepare('PRAGMA table_info(invoices)').all();
-      if (!cols.some(c => c.name === 'customer_gst')) {
-        db.prepare('ALTER TABLE invoices ADD COLUMN customer_gst TEXT').run();
-      }
+      const colNames = cols.map(c => c.name);
+      if (!colNames.includes('customer_gst')) db.prepare('ALTER TABLE invoices ADD COLUMN customer_gst TEXT').run();
+      if (!colNames.includes('pax')) db.prepare('ALTER TABLE invoices ADD COLUMN pax INTEGER DEFAULT 1').run();
+      if (!colNames.includes('steward')) db.prepare('ALTER TABLE invoices ADD COLUMN steward TEXT').run();
+      if (!colNames.includes('discount_reason')) db.prepare('ALTER TABLE invoices ADD COLUMN discount_reason TEXT').run();
+      if (!colNames.includes('payment_mode_2')) db.prepare('ALTER TABLE invoices ADD COLUMN payment_mode_2 TEXT').run();
+      if (!colNames.includes('payment_amount_2')) db.prepare('ALTER TABLE invoices ADD COLUMN payment_amount_2 REAL DEFAULT 0').run();
     } catch {}
 
     // 1. Seed Users (admin, cashier)
@@ -156,44 +161,22 @@ export function initDb() {
       `).run();
     }
 
-    // 3. Seed Categories
+    // 3. Seed Categories & Items for Alinea Restaurant
     const catCount = db.prepare('SELECT COUNT(*) as c FROM categories').get().c;
-    if (catCount === 0) {
-      const insertCat = db.prepare('INSERT INTO categories (name, display_order) VALUES (?, ?)');
-      const cats = [
-        'Main Course (Punjabi)', 'Dal & Rice', 'Breads & Roti', 'Starters & Chinese',
-        'Accompaniments & Soups', 'Beverages', 'Desserts'
-      ];
-      cats.forEach((c, idx) => insertCat.run(c, idx + 1));
-    }
-
-    // 4. Seed Items
     const itemCount = db.prepare('SELECT COUNT(*) as c FROM items').get().c;
-    if (itemCount === 0) {
+    if (catCount === 0 || itemCount === 0) {
+      db.prepare('DELETE FROM categories').run();
+      db.prepare('DELETE FROM items').run();
+      const insertCat = db.prepare('INSERT INTO categories (name, display_order) VALUES (?, ?)');
+      alineaCategories.forEach((cat, idx) => insertCat.run(cat, idx + 1));
+
       const insertItem = db.prepare(`
-        INSERT INTO items (code, name, category_name, unit, rate, is_veg, gst_rate)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO items (code, name, category_name, unit, rate, is_veg, gst_rate, display_order)
+        VALUES (?, ?, ?, ?, ?, ?, 5.0, ?)
       `);
-      const defaultItems = [
-        ['101', 'Paneer Butter Masala', 'Main Course (Punjabi)', 'Full', 260, 1, 5.0],
-        ['102', 'Paneer Tikka Masala', 'Main Course (Punjabi)', 'Full', 280, 1, 5.0],
-        ['103', 'Kaju Curry (Sweet)', 'Main Course (Punjabi)', 'Full', 310, 1, 5.0],
-        ['104', 'Veg Kolhapuri (Spicy)', 'Main Course (Punjabi)', 'Full', 230, 1, 5.0],
-        ['105', 'Dal Fry Butter', 'Dal & Rice', 'Full', 170, 1, 5.0],
-        ['106', 'Dal Tadka Special', 'Dal & Rice', 'Full', 190, 1, 5.0],
-        ['107', 'Jeera Rice', 'Dal & Rice', 'Full', 160, 1, 5.0],
-        ['108', 'Veg Dum Biryani', 'Dal & Rice', 'Full', 240, 1, 5.0],
-        ['109', 'Butter Naan', 'Breads & Roti', 'Pc', 55, 1, 5.0],
-        ['110', 'Garlic Naan', 'Breads & Roti', 'Pc', 75, 1, 5.0],
-        ['111', 'Tandoori Roti Butter', 'Breads & Roti', 'Pc', 30, 1, 5.0],
-        ['112', 'Cheese Butter Masala', 'Main Course (Punjabi)', 'Full', 320, 1, 5.0],
-        ['113', 'Manchurian Dry', 'Starters & Chinese', 'Full', 210, 1, 5.0],
-        ['114', 'Paneer Chilli Dry', 'Starters & Chinese', 'Full', 250, 1, 5.0],
-        ['115', 'Roasted Papad', 'Accompaniments & Soups', 'Pc', 30, 1, 5.0],
-        ['116', 'Masala Buttermilk', 'Beverages', 'Glass', 35, 1, 5.0],
-        ['117', 'Gulab Jamun (2 Pcs)', 'Desserts', 'Portion', 80, 1, 5.0]
-      ];
-      defaultItems.forEach(i => insertItem.run(...i));
+      alineaMenuItems.forEach((item, idx) => {
+        insertItem.run(item.code, item.name, item.category, item.unit, item.rate, item.isVeg, idx + 1);
+      });
     }
 
     // 5. Seed Tables (All AVAILABLE)

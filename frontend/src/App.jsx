@@ -3,6 +3,9 @@ import Navbar from './components/Layout/Navbar';
 import Sidebar from './components/Layout/Sidebar';
 import LoginView from './components/LoginView';
 import FastBillingView from './components/POS/FastBillingView';
+import ConsoleDashboardView from './components/Console/ConsoleDashboardView';
+import BillListView from './components/POS/BillListView';
+import BulkBillPrintView from './components/POS/BulkBillPrintView';
 import MastersView from './components/Masters/MastersView';
 import ReportsView from './components/Reports/ReportsView';
 import PrintBillModal from './components/Modals/PrintBillModal';
@@ -19,8 +22,8 @@ export default function App() {
     }
   });
 
-  // 2. Active Screen View ('BILLING', 'MASTERS', 'KITCHEN', 'REPORTS')
-  const [activeView, setActiveView] = useState('BILLING');
+  // 2. Active Screen View ('CONSOLE', 'BILL_LIST', 'BILLING', 'BULK_BILL', 'MASTERS', 'REPORTS')
+  const [activeView, setActiveView] = useState('CONSOLE');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // 3. Backend Data State
@@ -156,12 +159,14 @@ export default function App() {
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
     localStorage.setItem('pos_user', JSON.stringify(user));
+    setActiveView('CONSOLE');
   };
 
   // Handle Logout
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('pos_user');
+    setActiveView('CONSOLE');
   };
 
   // Handle View Selection
@@ -198,7 +203,7 @@ export default function App() {
       invoiceNo: billNo,
       date: new Date().toLocaleDateString('en-GB'),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      tableName: orderType === 'DINE_IN' ? (selectedTable?.name || 'Table') : orderType,
+      tableName: orderType === 'DINE_IN' ? (selectedTable?.name || selectedTable?.id || 'Table') : orderType,
       customerName: customer.name || 'Walk-in Guest',
       customerGst: customer.gstNo || '',
       paymentMode: calcData?.paymentMode || 'CASH',
@@ -206,6 +211,11 @@ export default function App() {
       discount: calcData?.discount,
       tax: calcData?.tax,
       grandTotal: calcData?.grandTotal,
+      pax: calcData?.pax || 1,
+      steward: calcData?.steward || '',
+      discountReason: calcData?.discountReason || '',
+      paymentMode2: calcData?.paymentMode2 || '',
+      paymentAmount2: calcData?.paymentAmount2 || 0,
       items: settleItems,
     };
 
@@ -318,6 +328,7 @@ export default function App() {
         user={currentUser}
         onLogout={handleLogout}
         onNewBill={handleNewBill}
+        onNavigateHome={() => setActiveView('CONSOLE')}
         isOnline={isBackendOnline}
       />
 
@@ -333,7 +344,59 @@ export default function App() {
 
         {/* Central View Switcher */}
         <div className="flex-1 min-w-0 h-full overflow-hidden flex flex-col bg-slate-100">
-          {/* VIEW 1: Bill / POS Fast Billing Screen */}
+          {/* VIEW 0: Console Root / Dashboard (Image 2) */}
+          {activeView === 'CONSOLE' && (
+            <ConsoleDashboardView
+              currentUser={currentUser}
+              onOpenBill={() => setActiveView('BILLING')}
+              onOpenBulkBill={() => setActiveView('BULK_BILL')}
+              salesCount={sales.length}
+              restaurant={restaurant}
+            />
+          )}
+
+          {/* VIEW 1: Bill List / Search Screen (Image 3) */}
+          {activeView === 'BILL_LIST' && (
+            <BillListView
+              invoices={sales}
+              currentUser={currentUser}
+              onSelectInvoice={(inv) => {
+                if (inv) {
+                  setBillNo(inv.invoiceNo || inv.invoice_no);
+                  const matchedTbl = tables.find(t => t.name === (inv.tableName || inv.table_name) || t.id === (inv.tableName || inv.table_name));
+                  setSelectedTable(matchedTbl || { id: inv.tableName || inv.table_name, name: inv.tableName || inv.table_name });
+                  setCustomer({
+                    name: inv.customerName || inv.customer_name || '',
+                    gstNo: inv.customerGst || inv.customer_gst || ''
+                  });
+                  const itemsList = Array.isArray(inv.items)
+                    ? inv.items
+                    : (typeof inv.items_json === 'string' ? JSON.parse(inv.items_json) : []);
+                  setOrderItems(itemsList);
+                }
+                setActiveView('BILLING');
+              }}
+              onNewBill={() => {
+                handleNewBill();
+                setActiveView('BILLING');
+              }}
+              onExit={() => setActiveView('CONSOLE')}
+              onPrintInvoice={(inv) => {
+                setPrintableData(inv);
+                setIsPrintOpen(true);
+              }}
+              onDeleteInvoice={async (id) => {
+                try {
+                  await api.deleteInvoice(id);
+                  await fetchAllData();
+                } catch (err) {
+                  alert(`Error deleting invoice: ${err.message}`);
+                }
+              }}
+            />
+          )}
+
+          {/* VIEW 2: Bill / POS Fast Billing Screen (Image 4 & 5) */}
           {activeView === 'BILLING' && (
             <FastBillingView
               billNo={billNo}
@@ -354,10 +417,35 @@ export default function App() {
               onSettleBill={handleSettleBill}
               onNewBill={handleNewBill}
               onTransferTable={handleTransferTable}
+              currentUser={currentUser}
+              sales={sales}
+              onPrintInvoice={(inv) => {
+                setPrintableData(inv);
+                setIsPrintOpen(true);
+              }}
+              onDeleteInvoice={async (id) => {
+                try {
+                  await api.deleteInvoice(id);
+                  await fetchAllData();
+                } catch (err) {
+                  alert(`Error deleting invoice: ${err.message}`);
+                }
+              }}
+              onExit={() => setActiveView('CONSOLE')}
+              onOpenListView={() => setActiveView('BILL_LIST')}
             />
           )}
 
-          {/* VIEW 2: Master Management Screen */}
+          {/* VIEW 3: Bulk Bill Print View */}
+          {activeView === 'BULK_BILL' && (
+            <BulkBillPrintView
+              invoices={sales}
+              currentUser={currentUser}
+              onExit={() => setActiveView('CONSOLE')}
+            />
+          )}
+
+          {/* VIEW 4: Master Management Screen */}
           {activeView === 'MASTERS' && (
             <MastersView
               items={items}
@@ -368,7 +456,7 @@ export default function App() {
             />
           )}
 
-          {/* VIEW 4: Sales & Reports Screen */}
+          {/* VIEW 5: Sales & Reports Screen */}
           {activeView === 'REPORTS' && (
             <ReportsView
               sales={sales}

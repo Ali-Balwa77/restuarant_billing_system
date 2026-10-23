@@ -6,6 +6,7 @@ export default function Navbar({
   user,
   onLogout,
   onNewBill,
+  onNavigateHome,
   isOnline = true
 }) {
   const [time, setTime] = useState(new Date().toLocaleTimeString());
@@ -20,7 +21,11 @@ export default function Navbar({
   return (
     <header className="bg-inspire-800 text-white border-b border-slate-700/80 px-4 py-2.5 flex items-center justify-between shadow-md select-none z-30">
       {/* Brand Identity */}
-      <div className="flex items-center space-x-3">
+      <div
+        onClick={onNavigateHome}
+        className="flex items-center space-x-3 cursor-pointer group"
+        title="Go to Console Root"
+      >
         <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-orange to-amber-500 flex items-center justify-center text-white shadow-md shadow-brand-orange/20">
           <UtensilsCrossed className="w-5 h-5" />
         </div>

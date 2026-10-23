@@ -48,6 +48,8 @@ export default function PrintBillModal({ isOpen, onClose, billData, restaurant }
               <div>
                 <div>Bill: <b>{billData.invoiceNo}</b></div>
                 <div>Table: <b>{billData.tableName || billData.table}</b></div>
+                {billData.pax && <div>Pax: <b>{billData.pax}</b></div>}
+                {billData.steward && <div>Steward: <b>{billData.steward}</b></div>}
                 {billData.customerName && billData.customerName !== 'Walk-in Guest' && (
                   <div>Cust: <b>{billData.customerName}</b></div>
                 )}

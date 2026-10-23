@@ -5,15 +5,26 @@ import {
   Trash2,
   User,
   FileText,
-  Grid,
   CreditCard,
   IndianRupee,
-  Tag,
   Percent,
   Layers,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ChevronFirst,
+  ChevronLeft,
+  ChevronRight,
+  ChevronLast,
+  Printer,
+  Eye,
+  LogOut,
+  Edit,
+  CheckCircle,
+  Clock,
+  RotateCcw,
+  ChevronDown
 } from 'lucide-react';
 import TransferTableModal from '../Modals/TransferTableModal';
+import InvoiceManagerModal from '../Modals/InvoiceManagerModal';
 import { api } from '../../services/api';
 
 export default function FastBillingView({
@@ -34,29 +45,72 @@ export default function FastBillingView({
   removeRunningOrder,
   onSettleBill,
   onNewBill,
-  onTransferTable
+  onTransferTable,
+  currentUser,
+  sales = [],
+  onPrintInvoice,
+  onDeleteInvoice,
+  onExit,
+  onOpenListView
 }) {
+  // Modal states
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+
+  // Loaded historic invoice state (when viewing past invoices with First/Prev/Next/Last or View modal)
+  const [loadedInvoice, setLoadedInvoice] = useState(null);
+
+  // Form input states
   const [tableCodeInput, setTableCodeInput] = useState('');
   const [tableError, setTableError] = useState('');
+  const [paxCount, setPaxCount] = useState(1);
+  const [stewardName, setStewardName] = useState('');
+  const [billDate, setBillDate] = useState(() => {
+    const today = new Date();
+    return today.toLocaleDateString('en-GB'); // dd/mm/yyyy
+  });
+
+  // Live Clock for Subheader strip
+  const [liveTime, setLiveTime] = useState(() => {
+    const d = new Date();
+    return `${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+  });
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const d = new Date();
+      setLiveTime(`${d.toLocaleDateString('en-GB')} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Inline entry states
   const [searchCode, setSearchCode] = useState('');
   const [searchName, setSearchName] = useState('');
   const [selectedQty, setSelectedQty] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [activeSearchField, setActiveSearchField] = useState('code');
-  const [isItemConfirmed, setIsItemConfirmed] = useState(false);
-  const [discountType, setDiscountType] = useState('PERCENT');
-  const [discountVal, setDiscountVal] = useState(0);
-  const [paymentMode, setPaymentMode] = useState('CASH');
-  const [cashTendered, setCashTendered] = useState('');
+  const [isCodeDropdownOpen, setIsCodeDropdownOpen] = useState(false);
+  const [isDescDropdownOpen, setIsDescDropdownOpen] = useState(false);
 
+  // Calculation & Settlement states
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [discountReason, setDiscountReason] = useState('');
+  const [primaryPaymentMode, setPrimaryPaymentMode] = useState('CASH');
+  const [primaryPaymentAmt, setPrimaryPaymentAmt] = useState('');
+  const [secondaryPaymentMode, setSecondaryPaymentMode] = useState('');
+  const [secondaryPaymentAmt, setSecondaryPaymentAmt] = useState('');
+
+  // Refs for keyboard navigation
   const searchInputRef = useRef(null);
   const descInputRef = useRef(null);
   const qtyInputRef = useRef(null);
   const tableInputRef = useRef(null);
   const tableContainerRef = useRef(null);
+  const entryRowRef = useRef(null);
 
-  // Sync tableCodeInput when selectedTable changes externally or resets
+  // Available stewards / captains
+  const stewardList = ['Steward 1', 'Steward 2', 'Captain Ramesh', 'Captain Suresh', 'Manager Admin'];
+
+  // Sync tableCodeInput when selectedTable changes
   useEffect(() => {
     if (orderType === 'TAKEAWAY') {
       setTableCodeInput('');
@@ -69,10 +123,10 @@ export default function FastBillingView({
         setTableCodeInput(selectedTable.id);
       }
     }
-  }, [orderType, selectedTable]);
+  }, [orderType, selectedTable, setSelectedTable]);
 
-  // Select or switch to a table (loads saved entries if table is running)
-  const handleSelectTable = useCallback((tableObj) => {
+  // Select or switch table
+  const handleSelectTable = useCallback((tableObj, shouldFocusItem = false) => {
     if (!tableObj) {
       setSelectedTable(null);
       setTableCodeInput('');
@@ -80,8 +134,10 @@ export default function FastBillingView({
       return;
     }
 
+    setLoadedInvoice(null); // Exit historical view if selecting a live table
+
     // Save previous table's items to runningOrders before switching
-    if (selectedTable?.id && selectedTable.id !== tableObj.id) {
+    if (selectedTable?.id && selectedTable.id !== tableObj.id && selectedTable.id !== 'TAKEAWAY') {
       if (orderItems.length > 0) {
         updateRunningOrder?.(selectedTable.id, orderItems, customer);
       } else {
@@ -105,53 +161,34 @@ export default function FastBillingView({
       setCustomer({ name: '', gstNo: '' });
     }
 
-    setTimeout(() => {
-      searchInputRef.current?.focus();
-    }, 50);
+    if (shouldFocusItem) {
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
+    }
   }, [selectedTable, orderItems, customer, runningOrders, updateRunningOrder, setSelectedTable, setOrderItems, setCustomer]);
 
-  // Handle table code input change and validation against master tables
+  // Table code input change (typing only updates the input; no jumping or error until Enter is pressed)
   const handleTableCodeChange = (e) => {
     const rawVal = e.target.value;
     setTableCodeInput(rawVal);
-    const code = rawVal.trim().toUpperCase();
-
-    if (!code) {
-      if (selectedTable?.id) {
-        if (orderItems.length > 0) {
-          updateRunningOrder?.(selectedTable.id, orderItems, customer);
-        } else {
-          removeRunningOrder?.(selectedTable.id);
-        }
-      }
-      setSelectedTable(null);
-      setTableError('');
-      return;
-    }
-
-    const matched = tables.find(t => t.id.toUpperCase() === code);
-    if (matched) {
-      handleSelectTable(matched);
-    } else {
-      setSelectedTable(null);
-      setTableError('Invalid Table');
-    }
+    setTableError('');
   };
 
   // Keep runningOrders updated whenever items or customer changes for active table
   useEffect(() => {
-    if (selectedTable?.id && selectedTable.id !== 'TAKEAWAY') {
+    if (selectedTable?.id && selectedTable.id !== 'TAKEAWAY' && !loadedInvoice) {
       if (orderItems.length > 0) {
         updateRunningOrder?.(selectedTable.id, orderItems, customer);
       } else {
         removeRunningOrder?.(selectedTable.id);
       }
     }
-  }, [orderItems, selectedTable, customer, updateRunningOrder, removeRunningOrder]);
+  }, [orderItems, selectedTable, customer, loadedInvoice, updateRunningOrder, removeRunningOrder]);
 
-  // Esc Button handler: Empties current order items & table selection, keeping running tables saved on left side
+  // Clear form / Esc action
   const handleEscClear = useCallback(() => {
-    if (selectedTable?.id) {
+    if (selectedTable?.id && selectedTable.id !== 'TAKEAWAY' && !loadedInvoice) {
       if (orderItems.length > 0) {
         updateRunningOrder?.(selectedTable.id, orderItems, customer);
       } else {
@@ -159,17 +196,25 @@ export default function FastBillingView({
       }
     }
 
+    setLoadedInvoice(null);
     setOrderItems([]);
     setSelectedTable(null);
     setTableCodeInput('');
     setTableError('');
     setCustomer({ name: '', gstNo: '' });
+    setPaxCount(1);
+    setStewardName('');
+    setDiscountPercent(0);
+    setDiscountReason('');
+    setPrimaryPaymentMode('CASH');
+    setPrimaryPaymentAmt('');
+    setSecondaryPaymentMode('');
+    setSecondaryPaymentAmt('');
     setSearchCode('');
     setSearchName('');
     setSelectedQty('');
-    setSearchResults([]);
-    setActiveSearchField('code');
-    setIsItemConfirmed(false);
+    setIsCodeDropdownOpen(false);
+    setIsDescDropdownOpen(false);
 
     setTimeout(() => {
       if (orderType === 'DINE_IN') {
@@ -178,50 +223,38 @@ export default function FastBillingView({
         searchInputRef.current?.focus();
       }
     }, 50);
-  }, [selectedTable, orderItems, customer, updateRunningOrder, setOrderItems, setSelectedTable, setCustomer, orderType]);
+  }, [selectedTable, orderItems, customer, loadedInvoice, updateRunningOrder, setOrderItems, setSelectedTable, setCustomer, orderType]);
 
-
-
-  // On Enter in table input, validate and jump to item code input
+  // Handle Enter key on Table input (only on Enter, validate and jump to item details)
   const handleTableKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       const code = tableCodeInput.trim().toUpperCase();
-      const matched = tables.find(t => t.id.toUpperCase() === code);
+      if (!code) {
+        if (selectedTable?.id && selectedTable.id !== 'TAKEAWAY') {
+          if (orderItems.length > 0) {
+            updateRunningOrder?.(selectedTable.id, orderItems, customer);
+          } else {
+            removeRunningOrder?.(selectedTable.id);
+          }
+        }
+        setSelectedTable(null);
+        setTableError('Table Not Found');
+        tableInputRef.current?.focus();
+        return;
+      }
+
+      const matched = tables.find(t => t.id.toUpperCase() === code || t.name.toUpperCase() === code);
       if (matched) {
-        handleSelectTable(matched);
+        handleSelectTable(matched, true); // true = advance focus to searchInputRef
         setTableError('');
-        searchInputRef.current?.focus();
       } else {
-        setTableError('Invalid Table');
+        setSelectedTable(null);
+        setTableError('Table Not Found');
         tableInputRef.current?.focus();
       }
     }
   };
-
-  // Focus Table input on mount/change if DINE_IN and no table selected; else focus Item Code
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (orderType === 'DINE_IN' && !selectedTable) {
-        tableInputRef.current?.focus();
-      } else {
-        searchInputRef.current?.focus();
-      }
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [orderType, selectedTable]);
-
-  // Reset all inline entry fields when new bill is created
-  useEffect(() => {
-    setSearchCode('');
-    setSearchName('');
-    setSelectedQty('');
-    setSearchResults([]);
-    setActiveSearchField('code');
-    setIsItemConfirmed(false);
-    setTableCodeInput('');
-    setTableError('');
-  }, [billNo]);
 
   // Active running tables list for left-hand side panel
   const runningTableList = Object.entries(runningOrders)
@@ -231,22 +264,40 @@ export default function FastBillingView({
       return { table: tbl, order: ord };
     });
 
-  // Filter items only when user searches in description
+  // Close dropdown when clicking outside the inline entry row
   useEffect(() => {
-    if (isItemConfirmed || activeSearchField !== 'desc') {
-      setSearchResults([]);
+    const handleClickOutside = (e) => {
+      if (entryRowRef.current && !entryRowRef.current.contains(e.target)) {
+        setIsCodeDropdownOpen(false);
+        setIsDescDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Dropdown toggles for arrow buttons (only click opens the dropdown)
+  const toggleCodeDropdown = () => {
+    if (orderType === 'DINE_IN' && !selectedTable) {
+      setTableError('Please enter Table first');
+      tableInputRef.current?.focus();
       return;
     }
-    const q = searchName.trim().toLowerCase();
-    if (!q) {
-      setSearchResults([]);
+    setIsDescDropdownOpen(false);
+    setIsCodeDropdownOpen(prev => !prev);
+    searchInputRef.current?.focus();
+  };
+
+  const toggleDescDropdown = () => {
+    if (orderType === 'DINE_IN' && !selectedTable) {
+      setTableError('Please enter Table first');
+      tableInputRef.current?.focus();
       return;
     }
-    const matches = menuItems.filter(
-      item => item.name.toLowerCase().includes(q) || item.code.toLowerCase().includes(q)
-    ).slice(0, 10);
-    setSearchResults(matches);
-  }, [searchName, activeSearchField, isItemConfirmed, menuItems]);
+    setIsCodeDropdownOpen(false);
+    setIsDescDropdownOpen(prev => !prev);
+    descInputRef.current?.focus();
+  };
 
   // Add Item to order
   const handleAddItem = (item, qty = 1) => {
@@ -275,7 +326,8 @@ export default function FastBillingView({
           qty: Number(qty) || 1,
           isVeg: Boolean(item.is_veg),
           unit: item.unit || 'Full',
-          gstRate: item.gst_rate || 5.0
+          gstRate: item.gst_rate || 5.0,
+          kotNo: 0
         }
       ]);
     }
@@ -283,9 +335,8 @@ export default function FastBillingView({
     setSearchCode('');
     setSearchName('');
     setSelectedQty('');
-    setSearchResults([]);
-    setActiveSearchField('code');
-    setIsItemConfirmed(false);
+    setIsCodeDropdownOpen(false);
+    setIsDescDropdownOpen(false);
     setTimeout(() => {
       searchInputRef.current?.focus();
       tableContainerRef.current?.scrollTo({ top: tableContainerRef.current.scrollHeight, behavior: 'smooth' });
@@ -303,13 +354,42 @@ export default function FastBillingView({
     if (nameQ) {
       const byName = menuItems.find(i => i.name.toLowerCase() === nameQ);
       if (byName) return byName;
-      if (activeSearchField === 'desc' && searchResults.length > 0) return searchResults[0];
+      const partial = menuItems.find(i => i.name.toLowerCase().includes(nameQ));
+      if (partial) return partial;
     }
     return null;
-  }, [searchCode, searchName, activeSearchField, menuItems, searchResults]);
+  }, [searchCode, searchName, menuItems]);
 
-  // When Enter or Tab is pressed in Item Code
+  // Search input keydown (Code field)
   const handleSearchKeyDown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (menuItems.length === 0) return;
+      const currentCode = searchCode.trim().toLowerCase();
+      const currentIndex = menuItems.findIndex(i => i.code.toLowerCase() === currentCode);
+      const nextIndex = currentIndex < menuItems.length - 1 ? currentIndex + 1 : 0;
+      const nextItem = menuItems[nextIndex];
+      if (nextItem) {
+        setSearchCode(nextItem.code);
+        setSearchName(nextItem.name);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (menuItems.length === 0) return;
+      const currentCode = searchCode.trim().toLowerCase();
+      const currentIndex = menuItems.findIndex(i => i.code.toLowerCase() === currentCode);
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : menuItems.length - 1;
+      const prevItem = menuItems[prevIndex];
+      if (prevItem) {
+        setSearchCode(prevItem.code);
+        setSearchName(prevItem.name);
+      }
+      return;
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
       if (orderType === 'DINE_IN' && !selectedTable) {
@@ -317,8 +397,7 @@ export default function FastBillingView({
         tableInputRef.current?.focus();
         return;
       }
-      setIsItemConfirmed(false);
-      setActiveSearchField('desc');
+      setIsCodeDropdownOpen(false);
       descInputRef.current?.focus();
       return;
     }
@@ -330,29 +409,60 @@ export default function FastBillingView({
         tableInputRef.current?.focus();
         return;
       }
+      setIsCodeDropdownOpen(false);
       const q = searchCode.trim().toLowerCase();
-      if (!q) {
-        return;
-      }
       const targetItem = menuItems.find(i => i.code.toLowerCase() === q) ||
         menuItems.find(i => i.code.toLowerCase().startsWith(q));
 
       if (targetItem) {
-        setIsItemConfirmed(true);
         setSearchCode(targetItem.code);
         setSearchName(targetItem.name);
-        setSearchResults([]);
-        setTimeout(() => {
-          qtyInputRef.current?.focus();
-        }, 30);
       }
+      setTimeout(() => {
+        qtyInputRef.current?.focus();
+        qtyInputRef.current?.select();
+      }, 30);
     } else if (e.key === 'Escape') {
-      setSearchResults([]);
+      setIsCodeDropdownOpen(false);
     }
   };
 
-  // When Enter or Tab is pressed in Item Description
+  // Description input keydown
   const handleDescKeyDown = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (menuItems.length === 0) return;
+      const currentName = searchName.trim().toLowerCase();
+      const currentCode = searchCode.trim().toLowerCase();
+      const currentIndex = menuItems.findIndex(
+        i => i.name.toLowerCase() === currentName || (currentCode && i.code.toLowerCase() === currentCode)
+      );
+      const nextIndex = currentIndex < menuItems.length - 1 ? currentIndex + 1 : 0;
+      const nextItem = menuItems[nextIndex];
+      if (nextItem) {
+        setSearchCode(nextItem.code);
+        setSearchName(nextItem.name);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (menuItems.length === 0) return;
+      const currentName = searchName.trim().toLowerCase();
+      const currentCode = searchCode.trim().toLowerCase();
+      const currentIndex = menuItems.findIndex(
+        i => i.name.toLowerCase() === currentName || (currentCode && i.code.toLowerCase() === currentCode)
+      );
+      const prevIndex = currentIndex > 0 ? currentIndex - 1 : menuItems.length - 1;
+      const prevItem = menuItems[prevIndex];
+      if (prevItem) {
+        setSearchCode(prevItem.code);
+        setSearchName(prevItem.name);
+      }
+      return;
+    }
+
     if (e.key === 'Enter') {
       e.preventDefault();
       if (orderType === 'DINE_IN' && !selectedTable) {
@@ -360,36 +470,35 @@ export default function FastBillingView({
         tableInputRef.current?.focus();
         return;
       }
-      const targetItem = matchedItem || (searchResults.length > 0 ? searchResults[0] : null);
+      setIsDescDropdownOpen(false);
+      const targetItem = matchedItem || menuItems.find(i => i.name.toLowerCase().includes(searchName.trim().toLowerCase()));
       if (targetItem) {
-        setIsItemConfirmed(true);
         setSearchCode(targetItem.code);
         setSearchName(targetItem.name);
-        setSearchResults([]);
-        setTimeout(() => {
-          qtyInputRef.current?.focus();
-        }, 30);
       }
+      setTimeout(() => {
+        qtyInputRef.current?.focus();
+        qtyInputRef.current?.select();
+      }, 30);
     } else if (e.key === 'Tab') {
       e.preventDefault();
-      const targetItem = matchedItem || (searchResults.length > 0 ? searchResults[0] : null);
+      setIsDescDropdownOpen(false);
+      const targetItem = matchedItem || menuItems.find(i => i.name.toLowerCase().includes(searchName.trim().toLowerCase()));
       if (targetItem) {
-        setIsItemConfirmed(true);
         setSearchCode(targetItem.code);
         setSearchName(targetItem.name);
-        setSearchResults([]);
       }
       qtyInputRef.current?.focus();
+      qtyInputRef.current?.select();
     } else if (e.key === 'Escape') {
-      setSearchResults([]);
+      setIsDescDropdownOpen(false);
     } else if (e.key === 'Backspace' && searchName === '') {
-      setIsItemConfirmed(false);
-      setActiveSearchField('code');
+      setIsDescDropdownOpen(false);
       searchInputRef.current?.focus();
     }
   };
 
-  // When Enter is pressed in Quantity, add item to bill and advance to the next row at bottom
+  // Quantity input keydown
   const handleQtyKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -404,31 +513,28 @@ export default function FastBillingView({
         handleAddItem(itemToAdd, !isNaN(qtyNum) && qtyNum > 0 ? qtyNum : 1);
       }
     } else if (e.key === 'Backspace' && selectedQty === '') {
-      if (activeSearchField === 'desc') {
-        descInputRef.current?.focus();
-      } else {
-        searchInputRef.current?.focus();
-      }
+      descInputRef.current?.focus();
     }
   };
 
-  // When an autocomplete option is clicked, fill code and jump directly to Quantity
+  // Selection from dropdown popup
   const handleSelectDropdownItem = (item) => {
     if (orderType === 'DINE_IN' && !selectedTable) {
       setTableError('Please enter Table first');
       tableInputRef.current?.focus();
       return;
     }
-    setIsItemConfirmed(true);
+    setIsCodeDropdownOpen(false);
+    setIsDescDropdownOpen(false);
     setSearchCode(item.code);
     setSearchName(item.name);
-    setSearchResults([]);
     setTimeout(() => {
       qtyInputRef.current?.focus();
+      qtyInputRef.current?.select();
     }, 30);
   };
 
-  // Update item qty manually
+  // Update item qty in table
   const handleUpdateQty = (code, val) => {
     if (val === '') {
       setOrderItems(orderItems.map(i => i.code === code ? { ...i, qty: '' } : i));
@@ -450,12 +556,12 @@ export default function FastBillingView({
   const removeItem = (code) => {
     const updated = orderItems.filter(i => i.code !== code);
     setOrderItems(updated);
-    if (selectedTable?.id && selectedTable.id !== 'TAKEAWAY') {
+    if (selectedTable?.id && selectedTable.id !== 'TAKEAWAY' && !loadedInvoice) {
       if (updated.length === 0) {
         removeRunningOrder?.(selectedTable.id);
         try {
           api.updateTable(selectedTable.id, { status: 'AVAILABLE' });
-        } catch { }
+        } catch {}
       } else {
         updateRunningOrder?.(selectedTable.id, updated, customer);
       }
@@ -464,24 +570,23 @@ export default function FastBillingView({
 
   // Calculations
   const subtotal = orderItems.reduce((acc, i) => acc + (i.rate * (Number(i.qty) || 0)), 0);
-  const discountAmt = discountType === 'PERCENT'
-    ? (subtotal * (parseFloat(discountVal) || 0)) / 100
-    : Math.min(subtotal, parseFloat(discountVal) || 0);
-
+  const discountAmt = (subtotal * (parseFloat(discountPercent) || 0)) / 100;
   const taxableAmount = Math.max(0, subtotal - discountAmt);
-  const cgst = taxableAmount * ((restaurant?.cgstRate || 2.5) / 100);
-  const sgst = taxableAmount * ((restaurant?.sgstRate || 2.5) / 100);
+  const cgstRate = restaurant?.cgstRate !== undefined ? restaurant.cgstRate : 2.5;
+  const sgstRate = restaurant?.sgstRate !== undefined ? restaurant.sgstRate : 2.5;
+  const cgst = parseFloat(((taxableAmount * cgstRate) / 100).toFixed(2));
+  const sgst = parseFloat(((taxableAmount * sgstRate) / 100).toFixed(2));
   const totalTax = cgst + sgst;
   const grandTotal = Math.round(taxableAmount + totalTax);
 
-  const tenderedNum = parseFloat(cashTendered) || 0;
-  const changeDue = tenderedNum > grandTotal ? tenderedNum - grandTotal : 0;
+  // Auto-sync primary payment amount if empty
+  const effectivePrimaryAmt = primaryPaymentAmt !== '' ? parseFloat(primaryPaymentAmt) || 0 : grandTotal;
 
-  // Direct Settle & Print Bill when End key is pressed
+  // Direct Settle & Print Bill (Triggered by End key or Print toolbar)
   const handleEndPrint = useCallback(() => {
     let finalItems = [...orderItems];
 
-    // If an item is currently selected/typed in the bottom entry row, automatically include it into the bill
+    // If an item is currently entered in the bottom entry row, automatically include it into the bill!
     if (matchedItem && (Number(selectedQty) > 0 || selectedQty !== '')) {
       const qNum = Number(selectedQty) || 1;
       const existingIndex = finalItems.findIndex(i => i.code === matchedItem.code);
@@ -501,7 +606,8 @@ export default function FastBillingView({
             qty: qNum,
             isVeg: Boolean(matchedItem.is_veg),
             unit: matchedItem.unit || 'Full',
-            gstRate: matchedItem.gst_rate || 5.0
+            gstRate: matchedItem.gst_rate || 5.0,
+            kotNo: 0
           }
         ];
       }
@@ -513,20 +619,14 @@ export default function FastBillingView({
     }
 
     const finalSubtotal = finalItems.reduce((acc, i) => acc + (i.rate * (Number(i.qty) || 0)), 0);
-    const finalDiscountAmt = discountType === 'PERCENT'
-      ? (finalSubtotal * (parseFloat(discountVal) || 0)) / 100
-      : Math.min(finalSubtotal, parseFloat(discountVal) || 0);
-
+    const finalDiscountAmt = (finalSubtotal * (parseFloat(discountPercent) || 0)) / 100;
     const finalTaxable = Math.max(0, finalSubtotal - finalDiscountAmt);
-    const finalCgst = finalTaxable * ((restaurant?.cgstRate || 2.5) / 100);
-    const finalSgst = finalTaxable * ((restaurant?.sgstRate || 2.5) / 100);
+    const finalCgst = parseFloat(((finalTaxable * cgstRate) / 100).toFixed(2));
+    const finalSgst = parseFloat(((finalTaxable * sgstRate) / 100).toFixed(2));
     const finalTotalTax = finalCgst + finalSgst;
     const finalGrandTotal = Math.round(finalTaxable + finalTotalTax);
 
-    const finalTendered = parseFloat(cashTendered) || 0;
-    const finalChangeDue = finalTendered > finalGrandTotal ? finalTendered - finalGrandTotal : 0;
-
-    // Reset inline entry inputs so they don't remain behind
+    // Reset inline entry inputs
     setSearchCode('');
     setSearchName('');
     setSelectedQty('');
@@ -540,25 +640,32 @@ export default function FastBillingView({
       grandTotal: finalGrandTotal,
       subtotal: finalSubtotal,
       discount: finalDiscountAmt,
+      discountReason,
       tax: finalTotalTax,
-      paymentMode,
-      cashTendered: finalTendered || finalGrandTotal,
-      changeDue: finalChangeDue,
+      pax: paxCount,
+      steward: stewardName,
+      paymentMode: primaryPaymentMode,
+      paymentMode2: secondaryPaymentMode,
+      paymentAmount2: parseFloat(secondaryPaymentAmt) || 0,
       items: finalItems
     });
   }, [
     orderItems,
     matchedItem,
     selectedQty,
-    discountType,
-    discountVal,
-    restaurant,
-    cashTendered,
-    paymentMode,
+    discountPercent,
+    discountReason,
+    cgstRate,
+    sgstRate,
+    paxCount,
+    stewardName,
+    primaryPaymentMode,
+    secondaryPaymentMode,
+    secondaryPaymentAmt,
     onSettleBill
   ]);
 
-  // Global Keyboard Shortcuts: Escape (Clear form), End (Direct Print & Settle Bill)
+  // Global Keyboard Shortcuts (Escape: clear; End: direct print & settle)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -573,73 +680,278 @@ export default function FastBillingView({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleEscClear, handleEndPrint]);
 
+  // Load a historic invoice into the view
+  const loadInvoiceIntoView = (inv) => {
+    if (!inv) return;
+    setLoadedInvoice(inv);
+    setTableCodeInput(inv.tableName || inv.table_name || '');
+    const matchedTbl = tables.find(t => t.name === (inv.tableName || inv.table_name) || t.id === (inv.tableName || inv.table_name));
+    setSelectedTable(matchedTbl || { id: inv.tableName || inv.table_name, name: inv.tableName || inv.table_name });
+    setCustomer({
+      name: inv.customerName || inv.customer_name || '',
+      gstNo: inv.customerGst || inv.customer_gst || ''
+    });
+    setPaxCount(inv.pax || 1);
+    setStewardName(inv.steward || '');
+    setDiscountReason(inv.discountReason || inv.discount_reason || '');
+    setPrimaryPaymentMode((inv.paymentMode || inv.payment_mode || 'CASH').toUpperCase());
+
+    const items = Array.isArray(inv.items)
+      ? inv.items
+      : (typeof inv.items_json === 'string' ? JSON.parse(inv.items_json) : []);
+
+    setOrderItems(items);
+  };
+
+  // Toolbar Navigation Handlers: First, Previous, Next, Last
+  const handleNavFirst = () => {
+    if (sales && sales.length > 0) {
+      loadInvoiceIntoView(sales[sales.length - 1]); // earliest invoice
+    }
+  };
+
+  const handleNavPrev = () => {
+    if (!sales || sales.length === 0) return;
+    if (!loadedInvoice) {
+      loadInvoiceIntoView(sales[0]);
+      return;
+    }
+    const currentIdx = sales.findIndex(s => (s.id === loadedInvoice.id || s.invoiceNo === loadedInvoice.invoiceNo));
+    if (currentIdx < sales.length - 1) {
+      loadInvoiceIntoView(sales[currentIdx + 1]);
+    }
+  };
+
+  const handleNavNext = () => {
+    if (!sales || sales.length === 0) return;
+    if (!loadedInvoice) return;
+    const currentIdx = sales.findIndex(s => (s.id === loadedInvoice.id || s.invoiceNo === loadedInvoice.invoiceNo));
+    if (currentIdx > 0) {
+      loadInvoiceIntoView(sales[currentIdx - 1]);
+    }
+  };
+
+  const handleNavLast = () => {
+    if (sales && sales.length > 0) {
+      loadInvoiceIntoView(sales[0]); // most recent invoice
+    }
+  };
+
+  const handleDeleteActiveInvoice = () => {
+    if (!loadedInvoice) return;
+    if (window.confirm(`Delete Invoice #${loadedInvoice.invoiceNo || loadedInvoice.invoice_no}?`)) {
+      onDeleteInvoice?.(loadedInvoice.id || loadedInvoice.invoiceNo);
+      handleEscClear();
+    }
+  };
+
+  const handlePrintActive = () => {
+    if (loadedInvoice && onPrintInvoice) {
+      onPrintInvoice(loadedInvoice);
+    } else {
+      handleEndPrint();
+    }
+  };
+
   return (
-    <div className="flex-1 flex flex-col lg:flex-row h-full overflow-hidden p-3 gap-3">
-      {/* 1. LEFT PANEL: Running Tables (Compact Table IDs Only) */}
-      <div className="w-full lg:w-24 bg-white rounded-2xl shadow-xs border border-slate-200 flex flex-col overflow-hidden shrink-0">
-        <div className="p-2 bg-slate-50 border-b border-slate-200 text-center">
-          <span className="font-extrabold text-[11px] text-slate-700 block tracking-tight">Tables</span>
-          <span className="text-[9px] font-bold text-emerald-600 bg-emerald-100 px-1.5 py-0.2 rounded-full inline-block mt-0.5 font-mono">
-            {runningTableList.length} Run
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-100 select-none text-slate-800">
+      {/* 1. TOP ACTION TOOLBAR matching Photos 1-5 */}
+      <div className="bg-slate-800 text-white border-b border-slate-700/80 px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 shadow-xs shrink-0">
+        <div className="flex items-center space-x-1 sm:space-x-1.5 flex-wrap">
+          {/* Navigation Buttons */}
+          <button
+            type="button"
+            onClick={handleNavFirst}
+            className="flex items-center space-x-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-900 rounded-lg text-xs font-bold transition cursor-pointer text-slate-200"
+            title="First Bill (|<<)"
+          >
+            <ChevronFirst className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">First</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleNavPrev}
+            className="flex items-center space-x-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-900 rounded-lg text-xs font-bold transition cursor-pointer text-slate-200"
+            title="Previous Bill (<)"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Previous</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleNavNext}
+            className="flex items-center space-x-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-900 rounded-lg text-xs font-bold transition cursor-pointer text-slate-200"
+            title="Next Bill (>)"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Next</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleNavLast}
+            className="flex items-center space-x-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-900 rounded-lg text-xs font-bold transition cursor-pointer text-slate-200"
+            title="Last Bill (>>|)"
+          >
+            <ChevronLast className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Last</span>
+          </button>
+
+          <span className="w-px h-5 bg-slate-700 mx-1 hidden sm:block"></span>
+
+          {/* Action Buttons: Add, Edit, Delete, Print, Exit, View */}
+          <button
+            type="button"
+            onClick={() => {
+              setLoadedInvoice(null);
+              onNewBill?.();
+              handleEscClear();
+            }}
+            className="flex items-center space-x-1 px-3 py-1 bg-brand-orange hover:bg-amber-600 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+            title="Add New Bill (+)"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add</span>
+          </button>
+
+          {loadedInvoice && (
+            <button
+              type="button"
+              onClick={handleDeleteActiveInvoice}
+              className="flex items-center space-x-1 px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+              title="Delete loaded bill"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handlePrintActive}
+            className="flex items-center space-x-1 px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+            title="Print Receipt (End)"
+          >
+            <Printer className="w-3.5 h-3.5 text-amber-400" />
+            <span>Print</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              handleEscClear();
+              if (onExit) onExit();
+            }}
+            className="flex items-center space-x-1 px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+            title="Exit / Return (Esc)"
+          >
+            <LogOut className="w-3.5 h-3.5 text-slate-300" />
+            <span>Exit</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenListView) {
+                onOpenListView();
+              } else {
+                setIsViewModalOpen(true);
+              }
+            }}
+            className="flex items-center space-x-1 px-3 py-1 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+            title="View Invoices List"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>View</span>
+          </button>
+        </div>
+
+        {/* Loaded Invoice Notification Badge */}
+        {loadedInvoice && (
+          <div className="flex items-center space-x-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 px-2.5 py-0.5 rounded-lg text-xs font-bold">
+            <span>Viewing Historical Bill #{loadedInvoice.invoiceNo || loadedInvoice.invoice_no}</span>
+            <button
+              onClick={handleEscClear}
+              className="text-amber-200 hover:text-white underline text-[11px] cursor-pointer ml-1"
+            >
+              Back to Live Billing
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 2. SUBHEADER STRIP matching Photo 2-5: User : A | Bill | Date : 22-10-2026 22:26 */}
+      <div className="bg-amber-100/90 text-amber-950 border-b border-amber-200/90 px-4 py-1.5 flex items-center justify-between text-xs font-bold shrink-0">
+        <div className="flex items-center space-x-2">
+          <span className="font-semibold text-slate-700">User :</span>
+          <span className="bg-amber-200/90 px-2 py-0.5 rounded text-amber-950 font-black">
+            {currentUser?.username?.toUpperCase() || currentUser?.name || 'A'}
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
-          {runningTableList.length === 0 ? (
-            <div className="py-8 text-center text-slate-400 text-[10px] font-medium">
-              None
-            </div>
-          ) : (
-            runningTableList.map(({ table }) => {
-              const isSelected = selectedTable?.id === table.id;
-              return (
-                <button
-                  key={table.id}
-                  type="button"
-                  onClick={() => handleSelectTable(table)}
-                  className={`w-full py-2 px-1 text-center rounded-xl font-mono font-black text-xs transition cursor-pointer ${isSelected
-                    ? 'bg-brand-orange text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-200'
-                    }`}
-                  title={table.name}
-                >
-                  {table.id}
-                </button>
-              );
-            })
-          )}
+        <div className="font-extrabold text-sm tracking-wide uppercase text-amber-900">
+          Bill
+        </div>
+
+        <div className="flex items-center space-x-1.5 font-mono text-slate-700">
+          <span className="font-semibold">Date :</span>
+          <span>{liveTime}</span>
         </div>
       </div>
 
-      {/* 2. CENTER: Billing Order Grid */}
-      <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden min-w-0">
-        {/* Top Control Bar: Order Type, Table, Captain, Customer */}
-        <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5">
-          {/* Order Type & Bill No */}
-          <div className="flex items-center space-x-2">
-            <span className="font-mono font-bold text-xs bg-slate-800 text-white px-2.5 py-1 rounded-lg">
-              {billNo}
-            </span>
-            <div className="flex bg-slate-200 p-0.5 rounded-lg text-xs font-bold">
-              {['DINE_IN', 'TAKEAWAY'].map(t => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setOrderType(t)}
-                  className={`px-3 py-1 rounded-md transition cursor-pointer ${orderType === t ? 'bg-white text-slate-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                >
-                  {t.replace('_', ' ')}
-                </button>
-              ))}
+      {/* 3. MAIN WORKSPACE: Left TABLES panel + Right Main Form */}
+      <div className="flex-1 flex overflow-hidden p-2.5 gap-2.5 min-h-0">
+        {/* Left Section: Active TABLES only (like before) */}
+        <div className="w-24 bg-white rounded-xl shadow-xs border border-slate-300 flex flex-col overflow-hidden shrink-0">
+          <div className="p-2 bg-slate-100 border-b border-slate-200 text-center">
+            <span className="font-extrabold text-[11px] text-slate-800 tracking-tight block">Tables</span>
+            <div className="mt-0.5">
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full inline-block font-mono">
+                {runningTableList.length} Run
+              </span>
             </div>
           </div>
 
-          {/* Table Input (Manual Entry & Validation by Table ID) */}
-          <div className="flex items-center space-x-2 flex-wrap">
-            {orderType === 'DINE_IN' && (
-              <div className="flex items-center space-x-1.5">
-                <span className="text-xs text-slate-500 font-semibold">Table:</span>
+          {/* Running Active Tables List */}
+          <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+            {runningTableList.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-[10px] font-medium">
+                None
+              </div>
+            ) : (
+              runningTableList.map(({ table }) => {
+                const isSelected = selectedTable?.id === table.id;
+                return (
+                  <button
+                    key={table.id}
+                    type="button"
+                    onClick={() => handleSelectTable(table)}
+                    className={`w-full py-2 px-1 text-center rounded-lg font-mono font-black text-xs transition cursor-pointer ${
+                      isSelected
+                        ? 'bg-brand-orange text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-800 hover:bg-slate-200 border border-slate-300'
+                    }`}
+                    title={table.name}
+                  >
+                    {table.id}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Right Section: Main Billing Window */}
+        <div className="flex-1 flex flex-col gap-2 min-w-0 overflow-hidden">
+          {/* TOP FORM BOX: Select Table, Bill No, Date, Customer, GST NO, Table Transfer (Pax and Steward removed) */}
+          <div className="bg-white rounded-xl shadow-xs border border-slate-300 p-2.5 shrink-0">
+            {/* Row 1: Select Table, Bill No, Date */}
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+              {/* Select Table (Compact width) */}
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Select Table :</span>
                 <div className="relative">
                   <input
                     ref={tableInputRef}
@@ -647,349 +959,421 @@ export default function FastBillingView({
                     value={tableCodeInput}
                     onChange={handleTableCodeChange}
                     onKeyDown={handleTableKeyDown}
-                    className={`px-2.5 py-1 text-xs font-mono font-bold uppercase rounded-lg border focus:outline-none transition w-24 ${tableError
-                      ? 'bg-red-50 border-red-400 text-red-700'
-                      : 'bg-white border-slate-300 text-slate-800 focus:border-brand-orange'
-                      }`}
+                    className={`w-28 px-2.5 py-1 font-mono font-bold uppercase rounded border text-xs outline-none transition ${
+                      tableError
+                        ? 'bg-red-50 border-red-400 text-red-700'
+                        : 'bg-white border-slate-300 text-slate-800 focus:border-brand-orange'
+                    }`}
                   />
+                  {tableError && (
+                    <span className="absolute left-0 -bottom-4 text-[10px] font-bold text-red-500 whitespace-nowrap z-10">
+                      {tableError}
+                    </span>
+                  )}
                 </div>
+              </div>
 
-                {tableError && (
-                  <span className="text-[11px] font-semibold text-red-500">
-                    {tableError}
-                  </span>
-                )}
+              {/* Bill No */}
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-slate-700">Bill No :</span>
+                <span className="font-mono font-black text-brand-orange bg-orange-50 border border-orange-200 px-2.5 py-1 rounded text-xs">
+                  {loadedInvoice ? (loadedInvoice.invoiceNo || loadedInvoice.invoice_no) : billNo}
+                </span>
+              </div>
 
-                {/* Transfer Table Button */}
+              {/* Date */}
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-slate-700">Date :</span>
+                <span className="font-mono font-bold text-slate-800 bg-slate-50 border border-slate-300 px-2.5 py-1 rounded text-xs">
+                  {loadedInvoice ? (loadedInvoice.date || billDate) : billDate}
+                </span>
+              </div>
+            </div>
+
+            {/* Row 2: Customer Name, GST NO, Table Transfer */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center text-xs mt-2 pt-2 border-t border-slate-100">
+              <div className="md:col-span-6 flex items-center space-x-2">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Customer :</span>
+                <input
+                  type="text"
+                  value={customer?.name || ''}
+                  onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
+                  className="flex-1 px-2.5 py-1 bg-white border border-slate-300 rounded text-xs font-semibold text-slate-800 outline-none focus:border-brand-orange"
+                />
+              </div>
+
+              <div className="md:col-span-4 flex items-center space-x-2">
+                <span className="font-bold text-slate-700 whitespace-nowrap">GST NO :</span>
+                <input
+                  type="text"
+                  value={customer?.gstNo || ''}
+                  onChange={(e) => setCustomer({ ...customer, gstNo: e.target.value.toUpperCase() })}
+                  className="flex-1 px-2.5 py-1 bg-white border border-slate-300 rounded text-xs font-mono uppercase text-slate-800 outline-none focus:border-brand-orange"
+                />
+              </div>
+
+              <div className="md:col-span-2 flex items-center justify-end">
                 {selectedTable && (orderItems.length > 0 || runningOrders[selectedTable.id]?.items?.length > 0) && (
                   <button
                     type="button"
                     onClick={() => setIsTransferModalOpen(true)}
-                    className="flex items-center space-x-1 px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-300 rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
-                    title="Transfer Table Order"
+                    className="flex items-center space-x-1 px-2.5 py-1 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded text-xs font-bold transition cursor-pointer shadow-2xs whitespace-nowrap"
+                    title="Shift order to another table"
                   >
                     <ArrowRightLeft className="w-3.5 h-3.5 text-sky-600" />
-                    <span>Transfer Table</span>
+                    <span>Table Transfer</span>
                   </button>
                 )}
               </div>
-            )}
-
-            {orderType === 'TAKEAWAY' && (
-              <div className="flex items-center space-x-1.5 bg-amber-50 border border-amber-200 text-amber-800 px-2.5 py-1 rounded-lg text-xs font-bold">
-                <span>🥡 Takeaway Counter</span>
-              </div>
-            )}
-          </div>
-
-          {/* Customer Name & Customer GST No */}
-          <div className="flex items-center space-x-2">
-            <div className="relative">
-              <User className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Customer Name"
-                value={customer?.name || ''}
-                onChange={(e) => setCustomer({ ...customer, name: e.target.value })}
-                className="pl-7 pr-2 py-1 bg-white border border-slate-300 rounded-lg text-xs w-36 focus:outline-none focus:border-brand-orange"
-              />
-            </div>
-            <div className="relative">
-              <FileText className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Customer GST No"
-                value={customer?.gstNo || ''}
-                onChange={(e) => setCustomer({ ...customer, gstNo: e.target.value.toUpperCase() })}
-                className="pl-7 pr-2 py-1 bg-white border border-slate-300 rounded-lg text-xs w-36 font-mono uppercase focus:outline-none focus:border-brand-orange"
-              />
             </div>
           </div>
-        </div>
 
-        {/* Direct Order Items Table with Full Borders (Grid Table) */}
-        <div ref={tableContainerRef} className="flex-1 overflow-y-auto p-3">
-          <table className="w-full text-left text-xs border border-slate-300 border-collapse">
-            <thead className="bg-slate-100 text-slate-700 font-bold sticky top-0 z-20">
-              <tr>
-                <th className="border border-slate-300 py-2 px-2.5 w-24">Item Code</th>
-                <th className="border border-slate-300 py-2 px-3">Item Description</th>
-                <th className="border border-slate-300 py-2 px-2 w-16 text-center">Quantity</th>
-                <th className="border border-slate-300 py-2 px-2.5 w-20 text-right">Price</th>
-                <th className="border border-slate-300 py-2 px-2.5 w-24 text-right">Amount</th>
-                <th className="border border-slate-300 py-2 px-2 w-12 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* Order Items Rows with Cell Borders (Added items on top) */}
-              {orderItems.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50 transition">
-                  <td className="border border-slate-300 py-2 px-2.5 font-mono font-bold text-brand-orange">
-                    {item.code}
-                  </td>
-                  <td className="border border-slate-300 py-2 px-3">
-                    <span className="font-bold text-slate-800 text-xs">{item.name}</span>
-                  </td>
-                  <td className="border border-slate-300 py-2 px-2 text-center">
-                    <input
-                      type="number"
-                      min="1"
-                      value={item.qty}
-                      onChange={(e) => handleUpdateQty(item.code, e.target.value)}
-                      onBlur={() => handleQtyBlur(item.code, item.qty)}
-                      className="w-full bg-transparent border-0 outline-none p-0 text-xs text-center font-bold font-mono text-slate-800 focus:outline-none focus:ring-0"
-                    />
-                  </td>
-                  <td className="border border-slate-300 py-2 px-2.5 text-right font-mono text-slate-700">
-                    ₹{item.rate}
-                  </td>
-                  <td className="border border-slate-300 py-2 px-2.5 text-right font-mono font-bold text-slate-900">
-                    ₹{item.rate * (Number(item.qty) || 0)}
-                  </td>
-                  <td className="border border-slate-300 py-2 px-2 text-center">
-                    <button
-                      type="button"
-                      onClick={() => removeItem(item.code)}
-                      className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1 rounded transition mx-auto block cursor-pointer"
-                      title="Remove item"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+          {/* MIDDLE: ITEM DETAILS GRID TABLE labeled "Item Details" (KOTNo removed) */}
+          <div className="flex-1 bg-white rounded-xl shadow-xs border border-slate-300 flex flex-col min-h-0 overflow-hidden">
+            {/* Box Header Label */}
+            <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-300 flex items-center justify-between">
+              <span className="font-bold text-xs text-slate-800 uppercase tracking-tight">Item Details</span>
+              <span className="text-[11px] font-mono text-slate-500 font-semibold">
+                {orderItems.length} items entered
+              </span>
+            </div>
 
-              {/* Direct Inline Entry Row (Always at the BOTTOM of table) */}
-              <tr className="bg-orange-50/40">
-                <td className="border border-slate-300 py-2 px-2.5 relative">
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={searchCode}
-                    onFocus={() => {
-                      setActiveSearchField('code');
-                      if (orderType === 'DINE_IN' && !selectedTable) {
-                        tableInputRef.current?.focus();
-                      }
-                    }}
-                    onChange={(e) => {
-                      if (orderType === 'DINE_IN' && !selectedTable) {
-                        setTableError('Please enter Table first');
-                        tableInputRef.current?.focus();
-                        return;
-                      }
-                      setIsItemConfirmed(false);
-                      setActiveSearchField('code');
-                      setSearchCode(e.target.value);
-                    }}
-                    onKeyDown={handleSearchKeyDown}
-                    className="w-full bg-transparent border-0 outline-none p-0 text-xs font-mono font-bold uppercase text-slate-800 focus:outline-none focus:ring-0"
-                  />
-                </td>
-                <td className="border border-slate-300 py-2 px-3 relative">
-                  <input
-                    ref={descInputRef}
-                    type="text"
-                    value={searchName || (searchCode && matchedItem ? matchedItem.name : '')}
-                    onFocus={() => {
-                      setActiveSearchField('desc');
-                      if (orderType === 'DINE_IN' && !selectedTable) {
-                        tableInputRef.current?.focus();
-                      }
-                    }}
-                    onChange={(e) => {
-                      if (orderType === 'DINE_IN' && !selectedTable) {
-                        setTableError('Please enter Table first');
-                        tableInputRef.current?.focus();
-                        return;
-                      }
-                      setIsItemConfirmed(false);
-                      setActiveSearchField('desc');
-                      setSearchName(e.target.value);
-                    }}
-                    onKeyDown={handleDescKeyDown}
-                    className="w-full bg-transparent border-0 outline-none p-0 text-xs font-bold text-slate-800 focus:outline-none focus:ring-0"
-                  />
-                  {/* Autocomplete Dropdown under Item Description: only displays item name, stays closed after selection */}
-                  {activeSearchField === 'desc' && searchResults.length > 0 && !isItemConfirmed && (
-                    <div className={`absolute left-0 w-96 ${orderItems.length > 2 ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white rounded-xl shadow-2xl border border-slate-300 max-h-60 overflow-y-auto z-30`}>
-                      {searchResults.map((item, idx) => (
-                        <div
-                          key={item.id}
-                          onClick={() => handleSelectDropdownItem(item)}
-                          className={`px-3 py-2 text-xs cursor-pointer border-b border-slate-100 hover:bg-orange-50 transition font-bold text-slate-800 ${idx === 0 ? 'bg-orange-50/70' : ''
-                            }`}
+            {/* Scrollable Grid Table */}
+            <div ref={tableContainerRef} className="flex-1 overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-50 text-slate-700 font-bold sticky top-0 z-20 border-b border-slate-300 shadow-2xs">
+                  <tr>
+                    <th className="border-r border-slate-300 py-2 px-2.5 w-24">Code</th>
+                    <th className="border-r border-slate-300 py-2 px-3">Item Description</th>
+                    <th className="border-r border-slate-300 py-2 px-2 w-20 text-center">Qty.</th>
+                    <th className="border-r border-slate-300 py-2 px-2.5 w-24 text-right">Rate</th>
+                    <th className="border-r border-slate-300 py-2 px-2.5 w-28 text-right">Amount</th>
+                    <th className="py-2 px-2 w-12 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Existing order items rows with borders */}
+                  {orderItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50 border-b border-slate-200 transition">
+                      <td className="border-r border-slate-200 py-2 px-2.5 font-mono font-bold text-brand-orange">
+                        {item.code}
+                      </td>
+                      <td className="border-r border-slate-200 py-2 px-3">
+                        <span className="font-bold text-slate-800 text-xs">{item.name}</span>
+                      </td>
+                      <td className="border-r border-slate-200 py-2 px-2 text-center">
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.qty}
+                          onChange={(e) => handleUpdateQty(item.code, e.target.value)}
+                          onBlur={() => handleQtyBlur(item.code, item.qty)}
+                          className="w-full bg-transparent border-0 outline-none p-0 text-xs text-center font-bold font-mono text-slate-800 focus:outline-none"
+                        />
+                      </td>
+                      <td className="border-r border-slate-200 py-2 px-2.5 text-right font-mono text-slate-700">
+                        {Number(item.rate).toFixed(2)}
+                      </td>
+                      <td className="border-r border-slate-200 py-2 px-2.5 text-right font-mono font-bold text-slate-900">
+                        {(item.rate * (Number(item.qty) || 0)).toFixed(2)}
+                      </td>
+                      <td className="py-2 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeItem(item.code)}
+                          className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1 rounded transition mx-auto block cursor-pointer"
+                          title="Remove item"
                         >
-                          {item.name}
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {/* Pinned Inline Entry Row (Always active at the bottom of Item Details table) */}
+                  <tr ref={entryRowRef} className="bg-orange-50/50 border-b-2 border-brand-orange/40">
+                    <td className="border-r border-slate-300 py-1.5 px-2 relative">
+                      <div className="flex items-center justify-between">
+                        <input
+                          ref={searchInputRef}
+                          type="text"
+                          value={searchCode}
+                          onFocus={() => {
+                            if (orderType === 'DINE_IN' && !selectedTable) {
+                              tableInputRef.current?.focus();
+                            }
+                          }}
+                          onChange={(e) => {
+                            if (orderType === 'DINE_IN' && !selectedTable) {
+                              setTableError('Please enter Table first');
+                              tableInputRef.current?.focus();
+                              return;
+                            }
+                            const val = e.target.value;
+                            setSearchCode(val);
+                            const found = menuItems.find(i => i.code.toLowerCase() === val.trim().toLowerCase());
+                            if (found) {
+                              setSearchName(found.name);
+                            }
+                          }}
+                          onKeyDown={handleSearchKeyDown}
+                          className="w-full bg-transparent border-0 outline-none p-0 text-xs font-mono font-bold uppercase text-slate-800 focus:ring-0"
+                        />
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleCodeDropdown();
+                          }}
+                          className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer ml-1 shrink-0"
+                          title="Open item code dropdown"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Dropdown under Code: ONLY opens when arrow button is clicked */}
+                      {isCodeDropdownOpen && (
+                        <div className={`absolute left-0 w-32 ${orderItems.length > 4 ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white rounded shadow-xl border border-slate-200 max-h-56 overflow-y-auto z-50 py-0.5`}>
+                          {menuItems.map((item) => {
+                            const isSelected = item.code.toLowerCase() === searchCode.trim().toLowerCase();
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => handleSelectDropdownItem(item)}
+                                className={`px-2.5 py-1.5 text-xs cursor-pointer font-mono font-bold transition ${
+                                  isSelected
+                                    ? 'bg-brand-orange text-white'
+                                    : 'hover:bg-orange-50 text-slate-800'
+                                }`}
+                              >
+                                {item.code}
+                              </div>
+                            );
+                          })}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </td>
-                <td className="border border-slate-300 py-2 px-2 text-center">
-                  <input
-                    ref={qtyInputRef}
-                    type="number"
-                    min="1"
-                    value={selectedQty}
-                    onFocus={() => {
-                      if (orderType === 'DINE_IN' && !selectedTable) {
-                        tableInputRef.current?.focus();
-                      }
-                    }}
-                    onChange={(e) => {
-                      if (orderType === 'DINE_IN' && !selectedTable) {
-                        setTableError('Please enter Table first');
-                        tableInputRef.current?.focus();
-                        return;
-                      }
-                      setSelectedQty(e.target.value);
-                    }}
-                    onKeyDown={handleQtyKeyDown}
-                    className="w-full bg-transparent border-0 outline-none p-0 text-xs text-center font-bold font-mono text-slate-800 focus:outline-none focus:ring-0"
-                  />
-                </td>
-                <td className="border border-slate-300 py-2 px-2.5 text-right font-mono font-bold text-slate-700">
-                  {matchedItem ? `₹${matchedItem.rate}` : ''}
-                </td>
-                <td className="border border-slate-300 py-2 px-2.5 text-right font-mono font-bold text-brand-orange">
-                  {matchedItem && selectedQty ? `₹${matchedItem.rate * (Number(selectedQty) || 0)}` : ''}
-                </td>
-                <td className="border border-slate-300 py-2 px-2 text-center">
-                  {/* Action cell empty in entry row */}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+                      )}
+                    </td>
+                    <td className="border-r border-slate-300 py-1.5 px-3 relative">
+                      <div className="flex items-center justify-between">
+                        <input
+                          ref={descInputRef}
+                          type="text"
+                          value={searchName || (searchCode && matchedItem ? matchedItem.name : '')}
+                          onFocus={() => {
+                            if (orderType === 'DINE_IN' && !selectedTable) {
+                              tableInputRef.current?.focus();
+                            }
+                          }}
+                          onChange={(e) => {
+                            if (orderType === 'DINE_IN' && !selectedTable) {
+                              setTableError('Please enter Table first');
+                              tableInputRef.current?.focus();
+                              return;
+                            }
+                            const val = e.target.value;
+                            setSearchName(val);
+                            const found = menuItems.find(i => i.name.toLowerCase() === val.trim().toLowerCase());
+                            if (found) {
+                              setSearchCode(found.code);
+                            }
+                          }}
+                          onKeyDown={handleDescKeyDown}
+                          className="w-full bg-transparent border-0 outline-none p-0 text-xs font-bold text-slate-800 focus:ring-0"
+                        />
+                        <button
+                          type="button"
+                          tabIndex={-1}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleDescDropdown();
+                          }}
+                          className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer ml-1 shrink-0"
+                          title="Open item description dropdown"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
 
-      {/* RIGHT: Bill Summary & Settle Payment Panel */}
-      <div className="w-full lg:w-96 bg-white rounded-2xl shadow-xs border border-slate-200 flex flex-col justify-between overflow-hidden">
-        {/* Breakdown Card */}
-        <div className="p-4 space-y-3.5 flex-1 overflow-y-auto">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <h3 className="font-bold text-sm text-slate-800">Bill Summary</h3>
-            <span className="text-[11px] font-mono text-slate-400">
-              {orderItems.reduce((acc, i) => acc + i.qty, 0)} Items
-            </span>
-          </div>
-
-          {/* Subtotal */}
-          <div className="flex justify-between text-xs text-slate-600">
-            <span>Item Subtotal:</span>
-            <span className="font-mono font-bold text-slate-800">₹{subtotal.toFixed(2)}</span>
-          </div>
-
-          {/* Discount Input */}
-          <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
-            <div className="flex items-center justify-between font-semibold text-slate-700">
-              <span>Apply Discount:</span>
-              <div className="flex space-x-1">
-                <button
-                  type="button"
-                  onClick={() => setDiscountType('PERCENT')}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${discountType === 'PERCENT' ? 'bg-brand-orange text-white' : 'bg-slate-200 text-slate-600'
-                    }`}
-                >
-                  %
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDiscountType('FLAT')}
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${discountType === 'FLAT' ? 'bg-brand-orange text-white' : 'bg-slate-200 text-slate-600'
-                    }`}
-                >
-                  ₹
-                </button>
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <input
-                type="number"
-                min="0"
-                value={discountVal}
-                onChange={(e) => setDiscountVal(e.target.value)}
-                placeholder="Discount value"
-                className="w-24 bg-white border border-slate-300 rounded px-2 py-1 text-xs font-mono font-bold"
-              />
-              <span className="text-red-600 font-mono font-bold">- ₹{discountAmt.toFixed(2)}</span>
-            </div>
-          </div>
-
-          {/* Taxes */}
-          <div className="space-y-1 text-xs text-slate-600 border-t border-slate-100 pt-2">
-            <div className="flex justify-between">
-              <span>CGST ({restaurant?.cgstRate || 2.5}%):</span>
-              <span className="font-mono">₹{cgst.toFixed(2)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>SGST ({restaurant?.sgstRate || 2.5}%):</span>
-              <span className="font-mono">₹{sgst.toFixed(2)}</span>
+                      {/* Dropdown under Item Description: ONLY opens when arrow button is clicked */}
+                      {isDescDropdownOpen && (
+                        <div className={`absolute left-0 min-w-64 max-w-md ${orderItems.length > 4 ? 'bottom-full mb-1' : 'top-full mt-1'} bg-white rounded shadow-xl border border-slate-200 max-h-56 overflow-y-auto z-50 py-0.5`}>
+                          {menuItems.map((item) => {
+                            const isSelected = item.name.toLowerCase() === (searchName || (matchedItem ? matchedItem.name : '')).trim().toLowerCase();
+                            return (
+                              <div
+                                key={item.id}
+                                onClick={() => handleSelectDropdownItem(item)}
+                                className={`px-3 py-1.5 text-xs cursor-pointer font-bold transition truncate ${
+                                  isSelected
+                                    ? 'bg-brand-orange text-white'
+                                    : 'hover:bg-orange-50 text-slate-800'
+                                }`}
+                              >
+                                {item.name}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </td>
+                    <td className="border-r border-slate-300 py-1.5 px-2 text-center">
+                      <input
+                        ref={qtyInputRef}
+                        type="number"
+                        min="1"
+                        value={selectedQty}
+                        onFocus={() => {
+                          if (orderType === 'DINE_IN' && !selectedTable) {
+                            tableInputRef.current?.focus();
+                          }
+                        }}
+                        onChange={(e) => {
+                          if (orderType === 'DINE_IN' && !selectedTable) {
+                            setTableError('Please enter Table first');
+                            tableInputRef.current?.focus();
+                            return;
+                          }
+                          setSelectedQty(e.target.value);
+                        }}
+                        onKeyDown={handleQtyKeyDown}
+                        className="w-full bg-transparent border-0 outline-none p-0 text-xs text-center font-bold font-mono text-slate-800 focus:ring-0"
+                      />
+                    </td>
+                    <td className="border-r border-slate-300 py-2 px-2.5 text-right font-mono font-bold text-slate-700">
+                      {matchedItem ? Number(matchedItem.rate).toFixed(2) : ''}
+                    </td>
+                    <td className="border-r border-slate-300 py-2 px-2.5 text-right font-mono font-bold text-brand-orange">
+                      {matchedItem && selectedQty ? (matchedItem.rate * (Number(selectedQty) || 0)).toFixed(2) : ''}
+                    </td>
+                    <td className="py-2 px-2 text-center text-slate-400 text-[10px]">
+                      Enter
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
-          {/* Grand Total Big Display */}
-          <div className="bg-slate-900 text-white p-3.5 rounded-xl flex items-center justify-between shadow-md">
-            <div>
-              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                Grand Total Payable
-              </div>
-              <div className="text-2xl font-black font-mono text-amber-400">
-                ₹{grandTotal}
-              </div>
-            </div>
-            <div className="text-right text-[10px] text-slate-400 font-mono">
-              Net Tax: ₹{totalTax.toFixed(2)}
-            </div>
-          </div>
-
-          {/* Payment Mode Selector */}
-          <div className="space-y-1.5 pt-1">
-            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-              Payment Method
-            </label>
-            <div className="grid grid-cols-4 gap-1.5">
-              {['CASH', 'UPI', 'CARD', 'CREDIT'].map(mode => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setPaymentMode(mode)}
-                  className={`py-2 rounded-xl text-xs font-bold transition border cursor-pointer ${paymentMode === mode
-                    ? 'bg-brand-orange text-white border-brand-orange shadow-xs'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Cash Tendered & Change (if cash) */}
-          {paymentMode === 'CASH' && (
-            <div className="flex items-center space-x-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs">
-              <div className="flex-1">
-                <span className="text-[10px] font-semibold text-slate-500 block">Tendered Cash:</span>
+          {/* BOTTOM SUMMARY & SETTLEMENT FOOTER */}
+          <div className="bg-white rounded-xl shadow-xs border border-slate-300 p-2.5 shrink-0 text-xs">
+            {/* ROW 1: Discount (% & Amt) | SGST (2.5% & Amt) | CGST (2.5% & Amt) | Total Amt. (Subtotal) */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+              {/* Discount : [ % ] % [ Amt ] */}
+              <div className="md:col-span-3 flex items-center space-x-1.5">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Discount :</span>
                 <input
                   type="number"
-                  placeholder={`₹${grandTotal}`}
-                  value={cashTendered}
-                  onChange={(e) => setCashTendered(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded px-2 py-1 font-mono font-bold mt-0.5"
+                  min="0"
+                  max="100"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)))}
+                  className="w-14 px-1.5 py-1 bg-white border border-slate-300 rounded font-mono font-bold text-center text-xs outline-none focus:border-brand-orange"
                 />
+                <span className="font-bold text-slate-600">%</span>
+                <span className="font-mono font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">
+                  {discountAmt.toFixed(2)}
+                </span>
               </div>
-              <div className="text-right flex-1">
-                <span className="text-[10px] font-semibold text-slate-500 block">Change Return:</span>
-                <span className="font-mono font-bold text-emerald-600 text-sm">
-                  ₹{changeDue.toFixed(2)}
+
+              {/* SGST : [ 2.5 ] % [ Amt ] */}
+              <div className="md:col-span-3 flex items-center space-x-1.5">
+                <span className="font-bold text-slate-700 whitespace-nowrap">SGST :</span>
+                <span className="w-12 px-1.5 py-1 bg-slate-100 border border-slate-300 rounded font-mono font-bold text-center text-xs text-slate-700">
+                  {sgstRate}%
+                </span>
+                <span className="font-mono font-semibold text-slate-800 bg-slate-50 px-2 py-1 rounded border border-slate-300 flex-1 text-right">
+                  {sgst.toFixed(2)}
+                </span>
+              </div>
+
+              {/* CGST : [ 2.5 ] % [ Amt ] */}
+              <div className="md:col-span-3 flex items-center space-x-1.5">
+                <span className="font-bold text-slate-700 whitespace-nowrap">CGST :</span>
+                <span className="w-12 px-1.5 py-1 bg-slate-100 border border-slate-300 rounded font-mono font-bold text-center text-xs text-slate-700">
+                  {cgstRate}%
+                </span>
+                <span className="font-mono font-semibold text-slate-800 bg-slate-50 px-2 py-1 rounded border border-slate-300 flex-1 text-right">
+                  {cgst.toFixed(2)}
+                </span>
+              </div>
+
+              {/* Total Amt. (Subtotal) */}
+              <div className="md:col-span-3 flex items-center justify-end space-x-1.5">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Total Amt. :</span>
+                <span className="font-mono font-black text-slate-900 bg-slate-100 px-3 py-1 rounded border border-slate-300 text-sm">
+                  {subtotal.toFixed(2)}
                 </span>
               </div>
             </div>
-          )}
+
+            {/* ROW 2: Reason | Items | Tax. Amt. | Grand Total */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center mt-2 pt-2 border-t border-slate-100">
+              {/* Reason */}
+              <div className="md:col-span-4 flex items-center space-x-1.5">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Reason :</span>
+                <input
+                  type="text"
+                  value={discountReason}
+                  onChange={(e) => setDiscountReason(e.target.value)}
+                  className="flex-1 px-2.5 py-1 bg-white border border-slate-300 rounded text-xs font-semibold text-slate-800 outline-none focus:border-brand-orange"
+                />
+              </div>
+
+              {/* Items Count */}
+              <div className="md:col-span-2 flex items-center space-x-1.5">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Items :</span>
+                <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2.5 py-1 rounded border border-slate-300">
+                  {orderItems.reduce((acc, i) => acc + (Number(i.qty) || 0), 0)}
+                </span>
+              </div>
+
+              {/* Tax. Amt. */}
+              <div className="md:col-span-3 flex items-center space-x-1.5">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Tax. Amt. :</span>
+                <span className="font-mono font-semibold text-slate-800 bg-slate-50 px-2 py-1 rounded border border-slate-300 flex-1 text-right">
+                  {totalTax.toFixed(2)}
+                </span>
+              </div>
+
+              {/* Grand Total Highlight Badge */}
+              <div className="md:col-span-3 flex items-center justify-end space-x-2">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Grand Total :</span>
+                <span className="font-mono font-black text-amber-950 bg-amber-200/90 px-3.5 py-1 rounded-lg border border-amber-300 text-base shadow-2xs">
+                  ₹{grandTotal}
+                </span>
+              </div>
+            </div>
+
+            {/* ROW 3: Single Pay By (Settle & Print and Clear buttons removed) */}
+            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
+              {/* Pay By */}
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-slate-700 whitespace-nowrap">Pay By :</span>
+                <div className="flex items-center space-x-1.5">
+                  {['CASH', 'UPI', 'CARD', 'CREDIT'].map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setPrimaryPaymentMode(mode)}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer border ${
+                        primaryPaymentMode === mode
+                          ? 'bg-brand-orange text-white border-brand-orange shadow-2xs'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-300'
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* 4. MODALS */}
       {/* Transfer Table Modal */}
       <TransferTableModal
         isOpen={isTransferModalOpen}
@@ -1001,6 +1385,22 @@ export default function FastBillingView({
         onTransferConfirm={async (fromId, toId) => {
           const res = await onTransferTable?.(fromId, toId);
           return res;
+        }}
+      />
+
+      {/* Invoice Manager Modal matching Photo 3 */}
+      <InvoiceManagerModal
+        isOpen={isViewModalOpen}
+        onClose={() => setIsViewModalOpen(false)}
+        invoices={sales}
+        onSelectInvoice={(inv) => {
+          loadInvoiceIntoView(inv);
+        }}
+        onPrintInvoice={(inv) => {
+          onPrintInvoice?.(inv);
+        }}
+        onDeleteInvoice={(id) => {
+          onDeleteInvoice?.(id);
         }}
       />
     </div>
