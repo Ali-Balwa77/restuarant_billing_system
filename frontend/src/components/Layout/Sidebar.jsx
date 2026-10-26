@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Folder,
   FolderOpen,
-  FileText,
   Receipt,
   Printer,
   Settings2,
@@ -10,9 +9,9 @@ import {
   ChevronDown,
   ChevronRight,
   Monitor,
-  Database,
-  Sliders,
-  ChevronLeft
+  ChevronLeft,
+  Wallet,
+  PartyPopper
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -24,9 +23,9 @@ export default function Sidebar({
   // Tree expansion states
   const [openSections, setOpenSections] = useState({
     master: false,
-    transaction: true, // open by default as in Image 2
+    transaction: true,
+    banquet: false,
     reports: false,
-    utilities: false,
   });
 
   const toggleSection = (key) => {
@@ -64,7 +63,7 @@ export default function Sidebar({
               className={`w-full p-2.5 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 activeView === 'CONSOLE' ? 'bg-brand-orange text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
-              title="Console Root"
+              title="Console Root (Live Tables)"
             >
               <Monitor className="w-5 h-5" />
             </button>
@@ -73,7 +72,7 @@ export default function Sidebar({
               className={`w-full p-2.5 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 activeView === 'BILLING' ? 'bg-amber-500 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
-              title="Bill"
+              title="Fast Billing"
             >
               <Receipt className="w-5 h-5" />
             </button>
@@ -87,18 +86,36 @@ export default function Sidebar({
               <Printer className="w-5 h-5" />
             </button>
             <button
+              onClick={() => setActiveView('TRANSACTIONS')}
+              className={`w-full p-2.5 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                activeView === 'TRANSACTIONS' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+              title="Transactions & Khata"
+            >
+              <Wallet className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setActiveView('BANQUET')}
+              className={`w-full p-2.5 rounded-xl flex items-center justify-center transition cursor-pointer ${
+                activeView === 'BANQUET' ? 'bg-purple-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+              }`}
+              title="Banquet & Party Booking"
+            >
+              <PartyPopper className="w-5 h-5" />
+            </button>
+            <button
               onClick={() => setActiveView('MASTERS')}
               className={`w-full p-2.5 rounded-xl flex items-center justify-center transition cursor-pointer ${
                 activeView === 'MASTERS' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
-              title="Master"
+              title="Masters"
             >
               <Settings2 className="w-5 h-5" />
             </button>
             <button
               onClick={() => setActiveView('REPORTS')}
               className={`w-full p-2.5 rounded-xl flex items-center justify-center transition cursor-pointer ${
-                activeView === 'REPORTS' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                activeView === 'REPORTS' ? 'bg-teal-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
               }`}
               title="Reports"
             >
@@ -106,7 +123,7 @@ export default function Sidebar({
             </button>
           </div>
         ) : (
-          /* Tree View matching Image 2 */
+          /* Tree View matching Param Infotech Windows Layout */
           <div className="font-mono text-xs space-y-1">
             {/* Root: Console Root */}
             <div
@@ -118,7 +135,7 @@ export default function Sidebar({
               }`}
             >
               <Monitor className="w-4 h-4 text-amber-400 shrink-0" />
-              <span className="font-sans font-bold text-xs tracking-tight">Console Root</span>
+              <span className="font-sans font-bold text-xs tracking-tight">Console Root (Live Tables)</span>
             </div>
 
             {/* Tree branches */}
@@ -161,13 +178,25 @@ export default function Sidebar({
                       onClick={() => setActiveView('MASTERS')}
                       className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
                     >
-                      • Tables Master
+                      • Dining Tables Master
+                    </div>
+                    <div
+                      onClick={() => setActiveView('MASTERS')}
+                      className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
+                    >
+                      • Stewards & Captains
+                    </div>
+                    <div
+                      onClick={() => setActiveView('MASTERS')}
+                      className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
+                    >
+                      • Credit Customers (Khata)
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Branch 2: Transaction (Contains Bill and Bulk Bill Print) */}
+              {/* Branch 2: Transaction */}
               <div>
                 <div
                   onClick={() => toggleSection('transaction')}
@@ -198,7 +227,7 @@ export default function Sidebar({
                       }`}
                     >
                       <Receipt className="w-3.5 h-3.5" />
-                      <span className="font-sans text-xs">Bill</span>
+                      <span className="font-sans text-xs">Bill (Fast Billing)</span>
                     </div>
 
                     {/* Item 2: Bulk Bill Print */}
@@ -213,11 +242,62 @@ export default function Sidebar({
                       <Printer className="w-3.5 h-3.5" />
                       <span className="font-sans text-xs">Bulk Bill Print</span>
                     </div>
+
+                    {/* Item 3: Cash Expenses & Receipts */}
+                    <div
+                      onClick={() => setActiveView('TRANSACTIONS')}
+                      className={`flex items-center space-x-2 px-2 py-1.5 rounded cursor-pointer transition ${
+                        activeView === 'TRANSACTIONS'
+                          ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                          : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                      }`}
+                    >
+                      <Wallet className="w-3.5 h-3.5" />
+                      <span className="font-sans text-xs">Cash Expenses & Khata</span>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Branch 3: Reports */}
+              {/* Branch 3: Banquet */}
+              <div>
+                <div
+                  onClick={() => {
+                    toggleSection('banquet');
+                    setActiveView('BANQUET');
+                  }}
+                  className={`flex items-center space-x-1.5 px-2 py-1 rounded cursor-pointer transition ${
+                    activeView === 'BANQUET'
+                      ? 'bg-slate-800 text-purple-400 font-bold'
+                      : 'text-slate-300 hover:bg-slate-800/50'
+                  }`}
+                >
+                  {openSections.banquet ? (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  {openSections.banquet ? (
+                    <FolderOpen className="w-3.5 h-3.5 text-purple-400" />
+                  ) : (
+                    <Folder className="w-3.5 h-3.5 text-purple-400" />
+                  )}
+                  <span className="font-sans font-semibold text-xs">Banquet Booking</span>
+                </div>
+
+                {openSections.banquet && (
+                  <div className="pl-5 space-y-1 border-l border-slate-700/60 ml-2.5 my-1">
+                    <div
+                      onClick={() => setActiveView('BANQUET')}
+                      className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
+                    >
+                      • Party Bookings & Billing
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Branch 4: Reports */}
               <div>
                 <div
                   onClick={() => {
@@ -249,44 +329,25 @@ export default function Sidebar({
                       onClick={() => setActiveView('REPORTS')}
                       className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
                     >
-                      • Daily Sales Report
+                      • Daily Sales Register
                     </div>
                     <div
                       onClick={() => setActiveView('REPORTS')}
                       className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
                     >
-                      • Tax Summary Report
+                      • Item & Category Sales
                     </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Branch 4: Utilities */}
-              <div>
-                <div
-                  onClick={() => toggleSection('utilities')}
-                  className="flex items-center space-x-1.5 px-2 py-1 rounded cursor-pointer text-slate-300 hover:bg-slate-800/50 transition font-sans font-semibold text-xs"
-                >
-                  {openSections.utilities ? (
-                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                  )}
-                  {openSections.utilities ? (
-                    <FolderOpen className="w-3.5 h-3.5 text-purple-400" />
-                  ) : (
-                    <Folder className="w-3.5 h-3.5 text-purple-400" />
-                  )}
-                  <span>Utilities</span>
-                </div>
-
-                {openSections.utilities && (
-                  <div className="pl-5 space-y-1 border-l border-slate-700/60 ml-2.5 my-1">
                     <div
-                      onClick={() => setActiveView('MASTERS')}
+                      onClick={() => setActiveView('REPORTS')}
                       className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
                     >
-                      • Restaurant Settings
+                      • Steward Performance
+                    </div>
+                    <div
+                      onClick={() => setActiveView('REPORTS')}
+                      className="px-2 py-0.5 text-[11px] text-slate-400 hover:text-white cursor-pointer hover:bg-slate-800/40 rounded"
+                    >
+                      • Tax & GST Audit
                     </div>
                   </div>
                 )}

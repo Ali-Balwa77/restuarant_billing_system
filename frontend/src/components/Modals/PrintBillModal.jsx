@@ -2,14 +2,24 @@ import React, { useEffect } from 'react';
 import { X, Printer } from 'lucide-react';
 
 export default function PrintBillModal({ isOpen, onClose, billData, restaurant }) {
+  // Directly trigger print as soon as modal opens with invoice data
   useEffect(() => {
     if (isOpen && billData) {
       const timer = setTimeout(() => {
         window.print();
-      }, 250);
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [isOpen, billData]);
+
+  // Automatically close modal after print completes or is cancelled
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      if (onClose) onClose();
+    };
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
+  }, [onClose]);
 
   if (!isOpen || !billData) return null;
 
@@ -18,22 +28,25 @@ export default function PrintBillModal({ isOpen, onClose, billData, restaurant }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full flex flex-col overflow-hidden border border-slate-200">
-        {/* Header */}
-        <div className="bg-slate-800 text-white px-4 py-3 flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 no-print-backdrop">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full flex flex-col overflow-hidden border border-slate-200 no-print-frame">
+        {/* Header (hidden in print) */}
+        <div className="bg-slate-800 text-white px-4 py-3 flex items-center justify-between no-print">
           <div className="flex items-center space-x-2">
             <Printer className="w-4 h-4 text-amber-400" />
             <span className="font-bold text-xs">Thermal Receipt Preview (80mm)</span>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1">
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* 80mm Thermal Receipt Slip */}
-        <div className="p-4 bg-slate-50 overflow-y-auto max-h-[70vh]">
-          <div className="bg-white p-4 shadow-sm border border-slate-200 font-mono text-[11px] text-slate-800 space-y-2 select-text">
+        {/* 80mm Thermal Receipt Slip Container */}
+        <div className="p-4 bg-slate-50 overflow-y-auto max-h-[70vh] flex justify-center">
+          <div
+            id="thermal-receipt-slip"
+            className="bg-white p-4 shadow-sm border border-slate-200 font-mono text-[11px] text-slate-800 space-y-2 select-text w-full max-w-[80mm]"
+          >
             {/* Restaurant Heading */}
             <div className="text-center border-b border-dashed border-slate-300 pb-2">
               <div className="font-black text-sm uppercase">{restaurant?.name || 'Alinea Restaurant & Banquet'}</div>
@@ -124,8 +137,8 @@ export default function PrintBillModal({ isOpen, onClose, billData, restaurant }
           </div>
         </div>
 
-        {/* Modal Buttons */}
-        <div className="p-3 bg-white border-t border-slate-200 flex space-x-2">
+        {/* Modal Buttons (hidden in print) */}
+        <div className="p-3 bg-white border-t border-slate-200 flex space-x-2 no-print">
           <button
             onClick={onClose}
             className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition cursor-pointer"

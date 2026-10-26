@@ -9,6 +9,11 @@ import kotRoutes from './routes/kotRoutes.js';
 import invoiceRoutes from './routes/invoiceRoutes.js';
 import customerRoutes from './routes/customerRoutes.js';
 import settingRoutes from './routes/settingRoutes.js';
+import expenseRoutes from './routes/expenseRoutes.js';
+import banquetRoutes from './routes/banquetRoutes.js';
+import inventoryRoutes from './routes/inventoryRoutes.js';
+import stewardRoutes from './routes/stewardRoutes.js';
+import transactionRoutes from './routes/transactionRoutes.js';
 import db from './config/db.js';
 
 dotenv.config();
@@ -26,8 +31,14 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/kots', kotRoutes);
 app.use('/api/sales', invoiceRoutes);
+app.use('/api/invoices', invoiceRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/settings', settingRoutes);
+app.use('/api/expenses', expenseRoutes);
+app.use('/api/banquet', banquetRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/stewards', stewardRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

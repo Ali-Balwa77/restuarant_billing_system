@@ -8,6 +8,8 @@ import BillListView from './components/POS/BillListView';
 import BulkBillPrintView from './components/POS/BulkBillPrintView';
 import MastersView from './components/Masters/MastersView';
 import ReportsView from './components/Reports/ReportsView';
+import TransactionsView from './components/Transactions/TransactionsView';
+import BanquetView from './components/Banquet/BanquetView';
 import PrintBillModal from './components/Modals/PrintBillModal';
 import { api } from './services/api';
 
@@ -102,6 +104,7 @@ export default function App() {
   // Thermal Print Modal State
   const [isPrintOpen, setIsPrintOpen] = useState(false);
   const [printableData, setPrintableData] = useState(null);
+  const [editingInvoice, setEditingInvoice] = useState(null);
 
   // Fetch all live data from backend SQLite
   const fetchAllData = useCallback(async () => {
@@ -179,6 +182,7 @@ export default function App() {
 
   // Start New Bill
   const handleNewBill = useCallback(() => {
+    setEditingInvoice(null);
     const nextNum = invoiceCounter + 1;
     setInvoiceCounter(nextNum);
     setBillNo(String(nextNum).padStart(4, '0'));
@@ -189,21 +193,22 @@ export default function App() {
     setActiveView('BILLING');
   }, [invoiceCounter]);
 
-
-
-  // Settle Bill
-  const handleSettleBill = useCallback(async (calcData) => {
+  // Settle or Update Bill
+  const handleSettleBill = useCallback(async (calcData, shouldPrint = true) => {
     const settleItems = (calcData?.items && calcData.items.length > 0) ? calcData.items : orderItems;
     if (!settleItems || settleItems.length === 0) {
       alert('Cannot settle empty order');
       return;
     }
 
+    const isUpdate = Boolean(calcData?.editingInvoiceId || editingInvoice?.id || editingInvoice?.invoiceNo);
+    const targetInvoiceId = calcData?.editingInvoiceId || editingInvoice?.id || editingInvoice?.invoiceNo;
+
     const invoicePayload = {
-      invoiceNo: billNo,
-      date: new Date().toLocaleDateString('en-GB'),
+      invoiceNo: isUpdate ? (editingInvoice?.invoiceNo || calcData?.invoiceNo || billNo) : billNo,
+      date: isUpdate ? (editingInvoice?.date || new Date().toLocaleDateString('en-GB')) : new Date().toLocaleDateString('en-GB'),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      tableName: orderType === 'DINE_IN' ? (selectedTable?.name || selectedTable?.id || 'Table') : orderType,
+      tableName: calcData?.tableName || (orderType === 'DINE_IN' ? (selectedTable?.id || selectedTable?.name || 'Table') : orderType),
       customerName: customer.name || 'Walk-in Guest',
       customerGst: customer.gstNo || '',
       paymentMode: calcData?.paymentMode || 'CASH',
@@ -219,27 +224,46 @@ export default function App() {
       items: settleItems,
     };
 
-    try {
-      await api.createInvoice(invoicePayload);
-
-      // Free table if dine-in
-      if (orderType === 'DINE_IN' && selectedTable?.id) {
-        await api.updateTable(selectedTable.id, { status: 'AVAILABLE' });
-        removeRunningOrder(selectedTable.id);
-      }
-
-      await fetchAllData();
-
-      // Open print receipt
+    // If print requested by user, open print modal
+    if (shouldPrint) {
       setPrintableData(invoicePayload);
       setIsPrintOpen(true);
+    }
 
-      // Prepare fresh new bill
+    try {
+      if (isUpdate) {
+        // UPDATE EXISTING INVOICE in database (DO NOT create new bill!)
+        await api.updateInvoice(targetInvoiceId, invoicePayload);
+      } else {
+        // CREATE NEW INVOICE
+        await api.createInvoice(invoicePayload);
+      }
+
+      // Free table if dine-in and remove from running orders (for BOTH new bills and updates)
+      const tableToFree = selectedTable?.id || invoicePayload.tableName;
+      if (tableToFree && tableToFree !== 'TAKEAWAY') {
+        removeRunningOrder(tableToFree);
+        const tbl = tables.find(t => t.name === tableToFree || t.id === tableToFree);
+        if (tbl?.id) {
+          removeRunningOrder(tbl.id);
+          api.updateTable(tbl.id, { status: 'AVAILABLE' }).catch(() => {});
+        }
+      }
+
+      // Background refresh
+      fetchAllData().catch(() => {});
+
+      // Clear editing state and reset for next bill
+      setEditingInvoice(null);
+      setSelectedTable(null);
+      setOrderItems([]);
+      setCustomer({ name: '', gstNo: '' });
       handleNewBill();
     } catch (err) {
-      alert(`Error settling bill: ${err.message}`);
+      console.error('Error saving bill:', err);
+      alert(`Error saving bill: ${err.message}`);
     }
-  }, [orderItems, billNo, orderType, selectedTable, customer, fetchAllData, handleNewBill, removeRunningOrder]);
+  }, [orderItems, billNo, orderType, selectedTable, customer, editingInvoice, fetchAllData, handleNewBill, removeRunningOrder]);
 
   // Transfer Table (Shift order from one table to another)
   const handleTransferTable = useCallback(async (fromTableId, toTableId) => {
@@ -362,9 +386,18 @@ export default function App() {
               currentUser={currentUser}
               onSelectInvoice={(inv) => {
                 if (inv) {
+                  setEditingInvoice(inv);
                   setBillNo(inv.invoiceNo || inv.invoice_no);
                   const matchedTbl = tables.find(t => t.name === (inv.tableName || inv.table_name) || t.id === (inv.tableName || inv.table_name));
-                  setSelectedTable(matchedTbl || { id: inv.tableName || inv.table_name, name: inv.tableName || inv.table_name });
+                  const targetTbl = matchedTbl || { id: inv.tableName || inv.table_name, name: inv.tableName || inv.table_name };
+                  setSelectedTable(targetTbl);
+                  // Ensure this table does NOT appear in Running Tables when editing historic invoice
+                  if (targetTbl?.id) {
+                    removeRunningOrder(targetTbl.id);
+                  }
+                  if (inv.tableName || inv.table_name) {
+                    removeRunningOrder(inv.tableName || inv.table_name);
+                  }
                   setCustomer({
                     name: inv.customerName || inv.customer_name || '',
                     gstNo: inv.customerGst || inv.customer_gst || ''
@@ -400,6 +433,8 @@ export default function App() {
           {activeView === 'BILLING' && (
             <FastBillingView
               billNo={billNo}
+              editingInvoice={editingInvoice}
+              setEditingInvoice={setEditingInvoice}
               orderType={orderType}
               setOrderType={setOrderType}
               selectedTable={selectedTable}
@@ -462,6 +497,18 @@ export default function App() {
               sales={sales}
               restaurant={restaurant}
             />
+          )}
+
+          {/* VIEW 6: Transactions, Petty Cash & Customer Khata */}
+          {activeView === 'TRANSACTIONS' && (
+            <TransactionsView
+              currentUser={currentUser}
+            />
+          )}
+
+          {/* VIEW 7: Banquet & Party Booking */}
+          {activeView === 'BANQUET' && (
+            <BanquetView />
           )}
         </div>
       </div>

@@ -81,4 +81,35 @@ export const api = {
   // Settings
   getSettings: () => request('/settings'),
   updateSettings: (settings) => request('/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+
+  // Expenses
+  getExpenses: (params = '') => request(`/expenses${params ? '?' + params : ''}`),
+  getExpenseSummary: () => request('/expenses/summary'),
+  createExpense: (exp) => request('/expenses', { method: 'POST', body: JSON.stringify(exp) }),
+  deleteExpense: (id) => request(`/expenses/${id}`, { method: 'DELETE' }),
+
+  // Banquet
+  getBanquetBookings: () => request('/banquet'),
+  createBanquetBooking: (booking) => request('/banquet', { method: 'POST', body: JSON.stringify(booking) }),
+  updateBanquetBooking: (id, data) => request(`/banquet/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteBanquetBooking: (id) => request(`/banquet/${id}`, { method: 'DELETE' }),
+
+  // Store Inventory
+  getInventory: () => request('/inventory'),
+  createInventoryItem: (item) => request('/inventory/item', { method: 'POST', body: JSON.stringify(item) }),
+  recordInventoryTxn: (txn) => request('/inventory/transaction', { method: 'POST', body: JSON.stringify(txn) }),
+  getInventoryTxns: () => request('/inventory/transactions'),
+
+  // Stewards
+  getStewards: () => request('/stewards'),
+  createSteward: (steward) => request('/stewards', { method: 'POST', body: JSON.stringify(steward) }),
+  updateSteward: (id, steward) => request(`/stewards/${id}`, { method: 'PUT', body: JSON.stringify(steward) }),
+  deleteSteward: (id) => request(`/stewards/${id}`, { method: 'DELETE' }),
+
+  // Cash Flow & Transactions
+  getCashFlow: (date = '') => request(`/transactions/cash-flow${date ? '?date=' + date : ''}`),
+  getCustomerReceipts: () => request('/transactions/customer-receipts'),
+  createCustomerReceipt: (rcp) => request('/transactions/customer-receipt', { method: 'POST', body: JSON.stringify(rcp) }),
+  getVoidKots: () => request('/transactions/void-kots'),
+  recordVoidKot: (voidData) => request('/transactions/void-kot', { method: 'POST', body: JSON.stringify(voidData) }),
 };

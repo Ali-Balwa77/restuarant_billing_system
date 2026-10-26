@@ -50,9 +50,22 @@ export default function MastersView({
   const [newTableArea, setNewTableArea] = useState('Main Hall');
   const [newTableCap, setNewTableCap] = useState(4);
 
+  // 4. Stewards State
+  const [stewards, setStewards] = useState([]);
+  const [showAddSteward, setShowAddSteward] = useState(false);
+  const [newStewardCode, setNewStewardCode] = useState('');
+  const [newStewardName, setNewStewardName] = useState('');
+  const [newStewardPhone, setNewStewardPhone] = useState('');
 
+  // 5. Customers State
+  const [customers, setCustomers] = useState([]);
+  const [showAddCust, setShowAddCust] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustAddress, setNewCustAddress] = useState('');
+  const [newCustCredit, setNewCustCredit] = useState(0);
 
-  // 5. Settings Form State
+  // 6. Settings Form State
   const [settingsForm, setSettingsForm] = useState({
     name: restaurant?.name || 'Alinea Restaurant & Banquet',
     tagline: restaurant?.tagline || 'Pure Veg & Multi-Cuisine',
@@ -64,6 +77,20 @@ export default function MastersView({
     sgstRate: restaurant?.sgstRate ?? 2.5,
     printerWidth: restaurant?.printerWidth || '80mm'
   });
+
+  const loadExtraMasters = async () => {
+    try {
+      const [stwRes, custRes] = await Promise.all([api.getStewards(), api.getCustomers()]);
+      if (stwRes?.data) setStewards(stwRes.data);
+      if (custRes?.data) setCustomers(custRes.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  React.useEffect(() => {
+    loadExtraMasters();
+  }, []);
 
   const showMsg = (text, type = 'success') => {
     setNotification({ text, type });
@@ -173,9 +200,59 @@ export default function MastersView({
     }
   };
 
+  // 4. Steward Handlers
+  const handleCreateSteward = async (e) => {
+    e.preventDefault();
+    if (!newStewardCode || !newStewardName) return;
+    try {
+      await api.createSteward({ code: newStewardCode.trim(), name: newStewardName.trim(), phone: newStewardPhone.trim() });
+      showMsg('Steward added!');
+      setNewStewardCode('');
+      setNewStewardName('');
+      setNewStewardPhone('');
+      setShowAddSteward(false);
+      loadExtraMasters();
+    } catch (err) {
+      showMsg(err.message, 'error');
+    }
+  };
 
+  const handleDeleteSteward = async (id) => {
+    if (!window.confirm('Delete this steward?')) return;
+    try {
+      await api.deleteSteward(id);
+      showMsg('Steward deleted');
+      loadExtraMasters();
+    } catch (err) {
+      showMsg(err.message, 'error');
+    }
+  };
 
-  // 5. Update Restaurant Settings Handler
+  // 5. Customer Handlers
+  const handleCreateCustomer = async (e) => {
+    e.preventDefault();
+    if (!newCustName || !newCustPhone) return;
+    try {
+      await api.createCustomer({
+        id: `CUST${Date.now().toString().slice(-4)}`,
+        name: newCustName.trim(),
+        phone: newCustPhone.trim(),
+        address: newCustAddress.trim(),
+        credit_due: parseFloat(newCustCredit) || 0
+      });
+      showMsg('Customer added!');
+      setNewCustName('');
+      setNewCustPhone('');
+      setNewCustAddress('');
+      setNewCustCredit(0);
+      setShowAddCust(false);
+      loadExtraMasters();
+    } catch (err) {
+      showMsg(err.message, 'error');
+    }
+  };
+
+  // 6. Update Restaurant Settings Handler
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     try {
@@ -205,7 +282,7 @@ export default function MastersView({
               <span>Restaurant Master Management</span>
             </h2>
             <p className="text-[11px] text-slate-300">
-              Manage Items, Categories, Tables, Staff and GST configurations directly in SQLite
+              Manage Items, Categories, Tables, Stewards and Customers directly in SQLite
             </p>
           </div>
 
@@ -215,6 +292,8 @@ export default function MastersView({
               { id: 'ITEMS', label: 'Item Master', icon: UtensilsCrossed },
               { id: 'CATEGORIES', label: 'Categories', icon: Layers },
               { id: 'TABLES', label: 'Tables', icon: Grid },
+              { id: 'STEWARDS', label: 'Stewards/Captains', icon: Users },
+              { id: 'CUSTOMERS', label: 'Customers Khata', icon: Users },
               { id: 'SETTINGS', label: 'Restaurant & Tax', icon: Building2 },
             ].map(tab => {
               const Icon = tab.icon;
@@ -489,7 +568,150 @@ export default function MastersView({
 
 
 
-        {/* TAB 5: RESTAURANT SETTINGS & TAX */}
+        {/* TAB 4: STEWARDS / CAPTAINS */}
+        {activeTab === 'STEWARDS' && (
+          <div className="flex-1 p-4 overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="font-bold text-sm text-slate-800">Stewards & Captains Master</h3>
+                <p className="text-xs text-slate-500">Tag captains and stewards for table orders and sales analysis</p>
+              </div>
+              <button
+                onClick={() => setShowAddSteward(!showAddSteward)}
+                className="px-3.5 py-1.5 bg-brand-orange hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center space-x-1 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Steward</span>
+              </button>
+            </div>
+
+            {showAddSteward && (
+              <form onSubmit={handleCreateSteward} className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                <input
+                  type="text"
+                  placeholder="Steward Code (e.g. 06)"
+                  value={newStewardCode}
+                  onChange={(e) => setNewStewardCode(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg p-2 font-mono font-bold"
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Full Name (e.g. Bharat Dave)"
+                  value={newStewardName}
+                  onChange={(e) => setNewStewardName(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg p-2 font-bold"
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Mobile / Contact No."
+                  value={newStewardPhone}
+                  onChange={(e) => setNewStewardPhone(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg p-2 font-mono"
+                />
+                <button type="submit" className="py-2 bg-emerald-600 text-white rounded-lg font-bold cursor-pointer">
+                  Save Steward
+                </button>
+              </form>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {stewards.map((s) => (
+                <div key={s.id} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-mono font-bold text-brand-orange text-xs">Code: {s.code}</span>
+                      <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[9px] font-bold">Active</span>
+                    </div>
+                    <div className="font-bold text-xs text-slate-800 mt-0.5">{s.name}</div>
+                    <div className="text-[10px] text-slate-400 font-mono">{s.phone || 'No phone'}</div>
+                  </div>
+                  <button onClick={() => handleDeleteSteward(s.id)} className="text-slate-400 hover:text-red-500 p-1 cursor-pointer">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: CUSTOMER KHATA ACCOUNTS */}
+        {activeTab === 'CUSTOMERS' && (
+          <div className="flex-1 p-4 overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="font-bold text-sm text-slate-800">Credit Customers & Khata Accounts</h3>
+                <p className="text-xs text-slate-500">Regular party & corporate customers with credit ledger balance</p>
+              </div>
+              <button
+                onClick={() => setShowAddCust(!showAddCust)}
+                className="px-3.5 py-1.5 bg-brand-orange hover:bg-orange-600 text-white rounded-xl text-xs font-bold flex items-center space-x-1 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Customer</span>
+              </button>
+            </div>
+
+            {showAddCust && (
+              <form onSubmit={handleCreateCustomer} className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 grid grid-cols-1 sm:grid-cols-5 gap-3 text-xs">
+                <input
+                  type="text"
+                  placeholder="Customer / Company Name *"
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg p-2 font-bold"
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Phone No. *"
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg p-2 font-mono"
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Address / Locality"
+                  value={newCustAddress}
+                  onChange={(e) => setNewCustAddress(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg p-2"
+                />
+                <input
+                  type="number"
+                  placeholder="Opening Due (₹)"
+                  value={newCustCredit}
+                  onChange={(e) => setNewCustCredit(e.target.value)}
+                  className="bg-white border border-slate-300 rounded-lg p-2 font-mono"
+                />
+                <button type="submit" className="py-2 bg-emerald-600 text-white rounded-lg font-bold cursor-pointer">
+                  Save Customer
+                </button>
+              </form>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {customers.map((c) => (
+                <div key={c.id} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+                  <div>
+                    <div className="font-bold text-xs text-slate-800">{c.name}</div>
+                    <div className="text-[10px] text-slate-500 font-mono">{c.phone}</div>
+                    <div className="text-[10px] text-slate-400 truncate max-w-[200px]">{c.address || '-'}</div>
+                    <div className="mt-1 text-xs font-mono font-bold">
+                      <span className="text-slate-500 text-[10px] font-normal">Credit Due: </span>
+                      <span className={c.credit_due > 0 ? 'text-red-600' : 'text-emerald-600'}>
+                        ₹{Number(c.credit_due || 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: RESTAURANT SETTINGS & TAX */}
         {activeTab === 'SETTINGS' && (
           <div className="flex-1 p-5 overflow-y-auto max-w-3xl">
             <h3 className="font-bold text-sm text-slate-800 mb-4">Restaurant Profile & GST Tax Configuration</h3>

@@ -3,8 +3,8 @@ import { UtensilsCrossed, Lock, User, ArrowRight, ShieldCheck, AlertCircle } fro
 import { api } from '../services/api';
 
 export default function LoginView({ onLoginSuccess }) {
-  const [username, setUsername] = useState('cashier');
-  const [password, setPassword] = useState('1234');
+  const [username, setUsername] = useState('A');
+  const [password, setPassword] = useState('A');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -123,22 +123,22 @@ export default function LoginView({ onLoginSuccess }) {
         {/* Quick Login Chips */}
         <div className="mt-6 pt-5 border-t border-slate-700/60">
           <div className="text-[11px] text-slate-400 text-center mb-2 font-medium">
-            Quick Fill Demo Accounts:
+            Quick Fill Accounts:
           </div>
           <div className="flex items-center justify-center space-x-2">
             <button
               type="button"
-              onClick={() => handleQuickFill('admin', 'admin123')}
-              className="px-3 py-1.5 bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-mono transition border border-slate-600/60 cursor-pointer"
+              onClick={() => handleQuickFill('A', 'A')}
+              className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-white rounded-lg text-xs font-mono transition border border-amber-500/40 cursor-pointer font-bold"
             >
-              Manager: <span className="text-amber-400 font-bold">admin</span>
+              Param User: <span className="text-amber-300">A / A</span>
             </button>
             <button
               type="button"
               onClick={() => handleQuickFill('cashier', '1234')}
               className="px-3 py-1.5 bg-slate-700/60 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-mono transition border border-slate-600/60 cursor-pointer"
             >
-              Cashier: <span className="text-sky-400 font-bold">cashier</span>
+              Cashier: <span className="text-emerald-400 font-bold">1234</span>
             </button>
           </div>
         </div>

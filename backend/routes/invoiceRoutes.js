@@ -155,8 +155,8 @@ router.put('/:id', (req, res) => {
       paymentAmount2 !== undefined ? parseFloat(paymentAmount2) : null,
       itemsCount,
       updatedItems,
-      id,
-      id
+      existing.id,
+      existing.invoice_no
     );
 
     res.json({ success: true, message: 'Invoice updated successfully' });
